@@ -18184,12 +18184,14 @@ function formatNext(out) {
     return lines.join("\n");
   }
   lines.push(`Step: ${out.stage} (${out.progress.done} of ${out.progress.total} tasks done)`);
-  if (out.tasks.length > 0) {
+  const todo = out.tasks.filter((t) => !out.waiting.includes(t.id));
+  if (todo.length > 0) {
     lines.push("Do these tasks now. Each task file says what to do and where to write the result:");
-    for (const t of out.tasks) {
+    for (const t of todo) {
       lines.push(`- ${t.id} [independence: ${t.independence}, model: ${t.model_tier}]`, `    task: ${t.task_file}`, `    result: ${t.result_file}`);
     }
-    if (out.tasks.some((t) => t.independence !== "none")) {
+    lines.push("If you already dispatched one of these tasks and its subagent is still working, wait for its result instead of dispatching it again.");
+    if (todo.some((t) => t.independence !== "none")) {
       lines.push(
         'Give tasks marked required to subagents with a fresh context: "Read <task file> and follow it exactly. Write the result to the path it names. Do not run hd next." Use subagents for recommended tasks too if you can. Independent tasks can run at the same time.'
       );

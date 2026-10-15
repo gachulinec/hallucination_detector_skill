@@ -151,6 +151,21 @@ describe("formatNext and runStatus", () => {
     expect(text).toContain(`node "/skill/scripts/hd.mjs" next "${ctx.paths.root}"`);
   });
 
+  // Review finding (reproduced): a task still being written was listed as work to do, inviting a duplicate dispatch
+  test("does not list a task whose result is being written as work to do", () => {
+    const ctx = makeRun(STANDARD_TEXT);
+    const [task] = runNext(ctx.paths.root).tasks;
+    writeFileSync(task.result_file, '{"claims": [');
+    const text = formatNext(runNext(ctx.paths.root));
+    expect(text).toContain("Still being written: extract-01");
+    expect(text).not.toContain("- extract-01 [independence");
+  });
+
+  test("tells the agent not to dispatch a task twice", () => {
+    const ctx = makeRun(STANDARD_TEXT);
+    expect(formatNext(runNext(ctx.paths.root))).toContain("wait for its result instead of dispatching it again");
+  });
+
   test("prints DONE with the counts and the summary file", async () => {
     const ctx = makeRun(STANDARD_TEXT);
     const text = formatNext(await runToEnd(ctx.paths.root));

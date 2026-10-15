@@ -15,7 +15,7 @@ import { maskSearchResults } from "../utils/observation-mask.js";
 import { selectPassages, type PageFetchResult } from "../utils/page-fetcher.js";
 import type { WebSearchOutcome } from "../utils/searxng-search.js";
 import { SKILL_LIMITS } from "./config.js";
-import { writeNetwork, type RunPaths } from "./run-state.js";
+import { readNetwork, writeNetwork, type RunPaths } from "./run-state.js";
 
 export interface StoredEvidence {
   id: string;
@@ -28,6 +28,8 @@ export interface StoredEvidence {
 export interface ClaimPassages {
   claim_id: number;
   fetched_urls: string[];
+  /** Pages hd fetch could not read: only these may be given as inline evidence */
+  failed_urls?: string[];
   items: StoredEvidence[];
 }
 
@@ -54,6 +56,13 @@ function addItems(
   if (fetchedUrl && !store.fetched_urls.includes(fetchedUrl)) store.fetched_urls.push(fetchedUrl);
   atomicWriteJSON(storeFile(paths, claimId), store);
   return added;
+}
+
+function recordFailedUrl(paths: RunPaths, claimId: number, url: string): void {
+  const store = readClaimPassages(paths, claimId);
+  const failed = store.failed_urls ?? [];
+  if (failed.includes(url)) return;
+  atomicWriteJSON(storeFile(paths, claimId), { ...store, failed_urls: [...failed, url] });
 }
 
 export function lookupEvidence(paths: RunPaths, claimId: number, id: string): StoredEvidence | undefined {
@@ -102,7 +111,9 @@ export async function fetchForClaim(
     page.text ? `Fetched ${url} (${page.text.length} chars)` : `Could not fetch ${url}: ${page.reason}`
   );
   if (!page.text) {
-    if (isNetworkFailure(page.reason)) {
+    recordFailedUrl(paths, claimId, url);
+    // Once a page was read, a network error is about this page, not a missing network
+    if (isNetworkFailure(page.reason) && readNetwork(paths) !== true) {
       writeNetwork(paths, { network: false, reason: page.reason });
       return {
         ok: false,

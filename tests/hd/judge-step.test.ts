@@ -16,6 +16,10 @@ async function verified(results: Array<Record<string, unknown>>) {
   const ctx = makeRun(STANDARD_TEXT);
   extractClaims(ctx);
   for (const id of [1, 2, 3]) await fetchForClaim(ctx.paths, id, "https://a.example/eiffel", "A", page);
+  // The page of the inline evidence below could not be read by hd fetch, so inline evidence is allowed
+  for (const id of [2, 3]) {
+    await fetchForClaim(ctx.paths, id, "https://b.example/x", undefined, async () => ({ text: null, method: "none", reason: "HTTP 403" }));
+  }
   const [task] = verifyStep.issue(ctx);
   expect(verifyStep.accept(ctx, task, { results })).toEqual({});
   expect(verifyStep.complete(ctx)).toBe("judge");

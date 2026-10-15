@@ -10,7 +10,7 @@ import { atomicWriteJSON } from "../../utils/atomic-write.js";
 import { loadPrompt } from "../../utils/prompts.js";
 import { clamp01 } from "../../utils/validate.js";
 import { SKILL_LIMITS } from "../config.js";
-import { lookupEvidence } from "../evidence-store.js";
+import { lookupEvidence, readClaimPassages } from "../evidence-store.js";
 import { entriesById, type ResultObject } from "../results.js";
 import { readAccepted, readNetwork, updateAccepted } from "../run-state.js";
 import { batches, claimsSection, newTask, numberedId, writeTaskFile } from "../tasks.js";
@@ -58,7 +58,7 @@ function render(ctx: StepContext, task: TaskRecord, feedback?: string): void {
     `2. Search with your web search tool. If you have none, try \`${hd} search ${run} <claim_id> "<query>"\` (it works only when a local SearXNG is running).`,
     readNetwork(ctx.paths) === false
       ? `3. hd has no network access in this environment. Read the most relevant pages with your own tools and add the evidence inline as ${inline}, with the text copied from the page. Inline evidence counts as unconfirmed.`
-      : `3. Get the evidence text with \`${hd} fetch ${run} <claim_id> "<url>"\` for the most relevant results (at most ${SKILL_LIMITS.maxFetchesPerClaim} pages per claim). It prints passages of the page with IDs such as E4.1; refer to the evidence by these IDs. A page hd cannot read (PDF, blocked, rendered by scripts) may be read with your own tools and added inline as ${inline}; inline evidence counts as unconfirmed.`,
+      : `3. Get the evidence text with \`${hd} fetch ${run} <claim_id> "<url>"\` for the most relevant results (at most ${SKILL_LIMITS.maxFetchesPerClaim} pages per claim); do not copy it from search results. hd fetch prints passages of the page with IDs such as E4.1; refer to the evidence by these IDs. Only a page that hd fetch could not read (it says so: PDF, blocked, rendered by scripts) may be read with your own tools and added inline as ${inline}; hd rejects inline evidence for any other page. Inline evidence counts as unconfirmed.`,
     `4. For each evidence item decide whether it supports or contradicts the claim or is neutral, with a confidence from 0 to 1; then set the status SUPPORTED, CONTRADICTED or INSUFFICIENT by the rules above. ${NLI_RULES.replace(/\n/g, " ")} Write the explanation in ${ctx.state.language}.`,
     thorough
       ? '5. If the status is INSUFFICIENT, fetch up to 2 more of the top result pages and decide again; then set "escalated": true.'
@@ -130,6 +130,10 @@ function parseEvidence(ctx: StepContext, claimId: number, item: unknown): Eviden
   const text = typeof fields.text === "string" ? fields.text.trim() : "";
   if (!/^https?:\/\//i.test(url) || text.length < 15) {
     return 'needs either an "id" printed by hd, or "url" (a web address) and "text" (at least a sentence copied from the page)';
+  }
+  // Inline evidence is only for pages hd cannot read (spec §5.2), or when hd has no network at all
+  if (readNetwork(ctx.paths) !== false && !(readClaimPassages(ctx.paths, claimId).failed_urls ?? []).includes(url)) {
+    return `is inline, but hd fetch has not tried ${url}: run hd fetch for it and refer to the IDs it prints (inline evidence is only for pages hd fetch cannot read)`;
   }
   return {
     source_url: url,

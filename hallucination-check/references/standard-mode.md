@@ -22,7 +22,7 @@ The consistency check asks whether a model that has never seen the claim states 
 - Search with your own web search tool. Search results are pointers: the evidence text must come from the page.
 - `hd fetch <run> <claim_id> "<url>"` downloads the page and prints the passages most relevant to the claim, with IDs such as `E4.1`. In the result, refer to evidence by its ID; hd fills in the text, so it cannot be miscopied.
 - `hd search <run> <claim_id> "<query>"` searches a local SearXNG (at `SEARXNG_URL`, default `http://localhost:8888`) and stores the snippets with IDs.
-- A page hd cannot read (PDF, blocked, rendered by scripts) may be read with your own tools and added inline with `url`, `title` and a `text` copied from the page. Inline evidence is **unconfirmed**: it never decides a verdict on its own; the judge weighs it.
+- A page hd cannot read (PDF, blocked, rendered by scripts) may be read with your own tools and added inline with `url`, `title` and a `text` copied from the page — only after `hd fetch` said it cannot read that page; hd rejects inline evidence for any other page. Inline evidence is **unconfirmed**: it never decides a verdict on its own; the judge weighs it.
 - If hd has no network access (some agents run commands without network), the tasks say so: use your own fetch and inline evidence.
 
 ## Which claims go to the judge

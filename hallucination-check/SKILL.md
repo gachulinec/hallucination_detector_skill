@@ -45,6 +45,7 @@ A retry task (`…-retry`) says what was wrong; do it like any other task. If `h
 ## Rules
 
 - Write only the result files that tasks name. Never edit the files `hd` manages (state.json, claims.json, evidence.json and the others in the run directory).
+- Do not move, delete or rewrite a result file after it is written: if a result is wrong, `hd next` asks for a retry itself.
 - Never skip a task, and never write a result without doing the work. If a task cannot be done (for example, you have no web search), write the error result the task describes.
 - Only you, the main agent, run `hd next`. Subagents only do their task; they may run `hd fetch` and `hd search`.
 - Do not change the checked text while the check runs. In a self-check, fix your draft after the result.

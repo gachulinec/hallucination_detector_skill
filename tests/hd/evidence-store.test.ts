@@ -70,6 +70,21 @@ describe("fetchForClaim", () => {
     expect(!out.ok && out.message).toContain("Not a web address");
   });
 
+  // Scenario 1 (Claude Code): one transient "fetch failed" after many read pages switched the run to "no network"
+  test("does not take one failed fetch for missing network once a page was read", async () => {
+    const ctx = extracted();
+    await fetchForClaim(ctx.paths, 1, "https://example.org/ok", undefined, page);
+    const out = await fetchForClaim(ctx.paths, 1, "https://example.org/flaky", undefined, async () => ({ text: null, method: "none", reason: "fetch failed" }));
+    expect(!out.ok && out.message).toContain("Could not read https://example.org/flaky");
+    expect(readNetwork(ctx.paths)).toBe(true);
+  });
+
+  test("remembers the pages hd could not read", async () => {
+    const ctx = extracted();
+    await fetchForClaim(ctx.paths, 1, "https://example.org/blocked", undefined, async () => ({ text: null, method: "none", reason: "HTTP 403" }));
+    expect(readClaimPassages(ctx.paths, 1).failed_urls).toEqual(["https://example.org/blocked"]);
+  });
+
   test("isNetworkFailure tells network errors from page errors", () => {
     expect(isNetworkFailure("fetch failed")).toBe(true);
     expect(isNetworkFailure("getaddrinfo ENOTFOUND example.org")).toBe(true);

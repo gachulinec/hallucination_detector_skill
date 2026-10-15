@@ -34,6 +34,8 @@ describe("verify step", () => {
     const file = readFileSync(taskFile(ctx.paths, tasks[0].id), "utf-8");
     expect(file).toContain(`node "/skill/scripts/hd.mjs" fetch "${ctx.paths.root}" <claim_id> "<url>"`);
     expect(file).toContain("# Retrieval Verifier");
+    expect(file).toContain("do not copy it from search results");
+    expect(file).toContain("hd rejects inline evidence for any other page");
     expect(file).toContain("one or two web search queries");
   });
 
@@ -46,6 +48,10 @@ describe("verify step", () => {
 
   test("fills evidence text from hd and marks inline evidence unconfirmed", async () => {
     const ctx = await ready();
+    // Inline evidence is accepted only for pages hd fetch could not read
+    const blocked = async (): Promise<PageFetchResult> => ({ text: null, method: "none", reason: "HTTP 403" });
+    await fetchForClaim(ctx.paths, 2, "https://b.example/x", undefined, blocked);
+    await fetchForClaim(ctx.paths, 3, "https://c.example/y", undefined, blocked);
     const [task] = verifyStep.issue(ctx);
     const outcome = verifyStep.accept(ctx, task, {
       results: [
@@ -77,6 +83,24 @@ describe("verify step", () => {
     expect(results.get(2)?.evidence[1]).toMatchObject({ source_url: "https://b.example/x", checked: false });
     expect(results.get(3)?.evidence[0].source_title).toBe("https://c.example/y");
     expect(ctx.state.warnings.join(" ")).toContain("written by the verifying agent");
+  });
+
+  // Scenario 1 (Claude Code): verifying subagents wrote search results inline instead of fetching the pages through hd
+  test("accepts inline evidence only for a page hd fetch could not read", async () => {
+    const ctx = await ready();
+    const [task] = verifyStep.issue(ctx);
+    const inlineResult = {
+      claim_id: 3,
+      search_queries: ["q"],
+      evidence: [{ url: "https://c.example/y", text: "Gustave Eiffel's company built the tower.", relation: "supports", confidence: 0.8 }],
+      verification_status: "SUPPORTED",
+      explanation: "e",
+    };
+    const outcome = verifyStep.accept(ctx, { ...task, claim_ids: [3] }, { results: [inlineResult] });
+    expect(outcome.retry?.feedback).toContain("hd fetch has not tried https://c.example/y");
+
+    await fetchForClaim(ctx.paths, 3, "https://c.example/y", undefined, async () => ({ text: null, method: "none", reason: "HTTP 403" }));
+    expect(verifyStep.accept(ctx, { ...task, claim_ids: [3] }, { results: [inlineResult] })).toEqual({});
   });
 
   test("asks for a retry of the claims with problems only", async () => {

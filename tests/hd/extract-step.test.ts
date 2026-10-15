@@ -58,6 +58,18 @@ describe("extract step", () => {
     expect(readClaims(ctx).claims).toHaveLength(2);
   });
 
+  // Review finding: a retry that returns only the corrected claims silently dropped the others
+  test("keeps the valid claims of the first attempt that the retry left out", () => {
+    const ctx = makeRun(STANDARD_TEXT);
+    const [task] = extractStep.issue(ctx);
+    const wrongSentence = { text: "The Eiffel Tower was completed in 1899", type: "numeric", original_sentence: "It was finished in 1899." };
+    expect(extractStep.accept(ctx, task, { claims: [STANDARD_CLAIMS[0], wrongSentence, STANDARD_CLAIMS[2]] }).retry).toBeDefined();
+    const retry = { ...task, id: "extract-01-retry", attempt: 2 };
+    expect(extractStep.accept(ctx, retry, { claims: [STANDARD_CLAIMS[1]] })).toEqual({});
+    extractStep.complete(ctx);
+    expect(readClaims(ctx).claims.map((c) => c.text)).toEqual(STANDARD_CLAIMS.map((c) => c.text));
+  });
+
   test("asks for a retry when the result has no claims array", () => {
     const ctx = makeRun(STANDARD_TEXT);
     const [task] = extractStep.issue(ctx);

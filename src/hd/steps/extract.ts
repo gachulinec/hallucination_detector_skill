@@ -79,11 +79,18 @@ function render(ctx: StepContext, task: TaskRecord, feedback?: string): void {
 function accept(ctx: StepContext, task: TaskRecord, value: ResultObject): AcceptOutcome {
   if (!Array.isArray(value.claims)) return { retry: { feedback: 'The result has no "claims" array.' } };
   const chunk = chunkOf(ctx, task);
-  const claims = positioned(normalizeExtractedClaims(value.claims), chunk.text);
+  const normalizedChunk = normalizeText(chunk.text);
+  let claims = positioned(normalizeExtractedClaims(value.claims), chunk.text);
+  if (task.attempt > 1) {
+    // A retry that returns only the corrected claims must not drop the valid claims of the first attempt
+    const previous = readAccepted<Claim[]>(ctx.paths, ACCEPTED)[chunk.id] ?? [];
+    const retried = new Set(claims.map((c) => normalizeText(c.text)));
+    const kept = previous.filter((c) => !retried.has(normalizeText(c.text)) && sentenceInText(c.original_sentence, normalizedChunk));
+    claims = [...claims, ...kept].sort((a, b) => a.source_position.start - b.source_position.start);
+  }
   // The newest valid list replaces an earlier one
   updateAccepted(ctx.paths, ACCEPTED, chunk.id, claims);
 
-  const normalizedChunk = normalizeText(chunk.text);
   const notInText = claims.filter((c) => !sentenceInText(c.original_sentence, normalizedChunk));
   const uncovered = uncoveredNumbers(chunk.text, claims);
 

@@ -19667,9 +19667,15 @@ ${chunk.text}`,
 function accept(ctx, task, value) {
   if (!Array.isArray(value.claims)) return { retry: { feedback: 'The result has no "claims" array.' } };
   const chunk = chunkOf(ctx, task);
-  const claims = positioned(normalizeExtractedClaims(value.claims), chunk.text);
-  updateAccepted(ctx.paths, ACCEPTED, chunk.id, claims);
   const normalizedChunk = normalizeText(chunk.text);
+  let claims = positioned(normalizeExtractedClaims(value.claims), chunk.text);
+  if (task.attempt > 1) {
+    const previous = readAccepted(ctx.paths, ACCEPTED)[chunk.id] ?? [];
+    const retried = new Set(claims.map((c) => normalizeText(c.text)));
+    const kept = previous.filter((c) => !retried.has(normalizeText(c.text)) && sentenceInText(c.original_sentence, normalizedChunk));
+    claims = [...claims, ...kept].sort((a, b) => a.source_position.start - b.source_position.start);
+  }
+  updateAccepted(ctx.paths, ACCEPTED, chunk.id, claims);
   const notInText = claims.filter((c) => !sentenceInText(c.original_sentence, normalizedChunk));
   const uncovered = uncoveredNumbers(chunk.text, claims);
   if (task.attempt === 1 && (notInText.length > 0 || uncovered.length > 0)) {

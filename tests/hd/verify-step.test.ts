@@ -35,6 +35,7 @@ describe("verify step", () => {
     expect(file).toContain(`node "/skill/scripts/hd.mjs" fetch "${ctx.paths.root}" <claim_id> "<url>"`);
     expect(file).toContain("# Retrieval Verifier");
     expect(file).toContain("do not copy it from search results");
+    expect(file).toContain("**Evidence text comes from hd.**");
     expect(file).toContain("hd rejects inline evidence for any other page");
     expect(file).toContain("one or two web search queries");
   });
@@ -111,6 +112,35 @@ describe("verify step", () => {
     expect(outcome).toEqual({});
     verifyStep.complete(ctx);
     expect(verificationMap(ctx).get(3)?.evidence[0]).toMatchObject({ source_url: "https://a.example/eiffel", checked: true });
+  });
+
+  // Scenario 1 rerun (Claude Code): one invalid item in the retry sank a claim whose valid evidence contradicted it
+  test("drops evidence items still invalid in the retry and keeps the claim when the rest backs its status", async () => {
+    const ctx = await ready();
+    const [task] = verifyStep.issue(ctx);
+    const retry = { ...task, id: "verify-01-retry", attempt: 2, claim_ids: [2] };
+    const result = {
+      claim_id: 2,
+      search_queries: ["q"],
+      evidence: [
+        { id: "E2.1", relation: "contradicts", confidence: 0.9 },
+        { url: "https://news.example/x", text: "A news page says the tower opened in 1889.", relation: "contradicts", confidence: 0.6 },
+      ],
+      verification_status: "CONTRADICTED",
+      explanation: "e",
+    };
+    expect(verifyStep.accept(ctx, retry, { results: [result] })).toEqual({});
+    verifyStep.complete(ctx);
+    expect(verificationMap(ctx).get(2)?.evidence).toHaveLength(1);
+    expect(ctx.state.warnings.join(" ")).toContain("1 evidence items were dropped");
+  });
+
+  test("still fails a claim in the retry when no valid evidence backs its status", async () => {
+    const ctx = await ready();
+    const [task] = verifyStep.issue(ctx);
+    const retry = { ...task, id: "verify-01-retry", attempt: 2, claim_ids: [2] };
+    const outcome = verifyStep.accept(ctx, retry, { results: [{ claim_id: 2, search_queries: ["q"], evidence: [{ id: "E9.9", relation: "supports" }], verification_status: "SUPPORTED" }] });
+    expect(outcome.retry?.claimIds).toEqual([2]);
   });
 
   test("asks for a retry of the claims with problems only", async () => {

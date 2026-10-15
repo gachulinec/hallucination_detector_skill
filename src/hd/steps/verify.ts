@@ -74,6 +74,12 @@ function render(ctx: StepContext, task: TaskRecord, feedback?: string): void {
         "",
         "## How to work",
         "",
+        ...(readNetwork(ctx.paths) === false
+          ? []
+          : [
+              "**Evidence text comes from hd.** For every page you use as evidence, run `hd fetch` and cite the IDs it prints. Text copied from search results or read with your own fetch tool is rejected, unless hd fetch reported that it cannot read that page.",
+              "",
+            ]),
         "Do this for each claim below:",
         "",
         ...steps,
@@ -146,7 +152,8 @@ function parseEvidence(ctx: StepContext, claimId: number, item: unknown): Eviden
   };
 }
 
-type Parsed = { result: VerificationResult } | { problems: string[] };
+/** A valid result, with the number of invalid evidence items the last attempt dropped */
+type Parsed = { result: VerificationResult; dropped: number } | { problems: string[] };
 
 function parseResult(ctx: StepContext, task: TaskRecord, claim: Claim, entry: ResultObject): Parsed {
   const problems: string[] = [];
@@ -166,11 +173,15 @@ function parseResult(ctx: StepContext, task: TaskRecord, claim: Claim, entry: Re
     problems.push(`at most ${SKILL_LIMITS.maxEvidencePerClaim} evidence items, not ${rawEvidence.length}`);
   }
   const evidence: Evidence[] = [];
+  const itemProblems: string[] = [];
   rawEvidence.slice(0, SKILL_LIMITS.maxEvidencePerClaim).forEach((item, i) => {
     const parsed = parseEvidence(ctx, claim.id, item);
-    if (typeof parsed === "string") problems.push(`evidence item ${i + 1} ${parsed}`);
+    if (typeof parsed === "string") itemProblems.push(`evidence item ${i + 1} ${parsed}`);
     else evidence.push(parsed);
   });
+  // The last attempt keeps the valid items: one bad item must not sink a claim its other evidence decides
+  const lastAttempt = task.attempt >= SKILL_LIMITS.maxAttempts;
+  if (!lastAttempt) problems.push(...itemProblems);
 
   if (status === "SUPPORTED" && !evidence.some((e) => e.support_relation === "supports")) {
     problems.push("SUPPORTED needs at least one evidence item with the relation supports");
@@ -187,9 +198,10 @@ function parseResult(ctx: StepContext, task: TaskRecord, claim: Claim, entry: Re
   ) {
     problems.push('the status is INSUFFICIENT: fetch up to 2 more of the top result pages, decide again and set "escalated": true');
   }
-  if (problems.length > 0) return { problems };
+  if (problems.length > 0) return { problems: lastAttempt ? [...problems, ...itemProblems] : problems };
 
   return {
+    dropped: itemProblems.length,
     result: {
       claim_id: claim.id,
       claim_text: claim.text,
@@ -207,6 +219,7 @@ function accept(ctx: StepContext, task: TaskRecord, value: ResultObject): Accept
   const claims = claimMap(ctx);
   const problems: string[] = [];
   const retry: number[] = [];
+  let dropped = 0;
   for (const id of task.claim_ids) {
     const claim = claims.get(id);
     if (!claim) continue;
@@ -214,10 +227,17 @@ function accept(ctx: StepContext, task: TaskRecord, value: ResultObject): Accept
     const parsed: Parsed = entry ? parseResult(ctx, task, claim, entry) : { problems: ["no result for this claim"] };
     if ("result" in parsed) {
       updateAccepted(ctx.paths, ACCEPTED, id, parsed.result);
+      dropped += parsed.dropped;
     } else {
       problems.push(`Claim ${id}: ${parsed.problems.join("; ")}.`);
       retry.push(id);
     }
+  }
+  if (dropped > 0) {
+    addWarning(
+      ctx.state,
+      `${task.id}: ${dropped} evidence items were dropped after the retry because hd could not accept them (unknown IDs, or inline text for pages hd fetch did not try).`
+    );
   }
   return retry.length > 0 ? { retry: { feedback: problems.join("\n"), claimIds: retry } } : {};
 }

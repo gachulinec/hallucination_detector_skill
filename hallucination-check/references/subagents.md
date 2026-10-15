@@ -28,4 +28,4 @@ Start the run with `hd init --no-subagents` and do every task yourself, in order
 
 ## Recording who did a task
 
-Every result has `"executed_by": "subagent"` or `"main"`. Write it truthfully: the report computes from it whether the check was independent.
+Every result has `"executed_by"`: `"subagent"` when another agent gave you the task file (also when you do the task yourself, as task files ask), `"main"` only for the agent that runs `hd next`. Write it truthfully: the report computes from it whether the check was independent, and samples marked `"main"` switch the consistency check off.

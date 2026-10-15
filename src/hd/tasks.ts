@@ -92,7 +92,7 @@ export function writeTaskFile(ctx: StepContext, task: TaskRecord, content: TaskC
     "```",
     "",
     ...(content.outputRules ?? []).map((rule) => `- ${rule}`),
-    '- Set "executed_by" to "subagent" if you were dispatched as a subagent for this task, or "main" if you are the main agent.',
+    '- Set "executed_by" to "subagent" if another agent gave you this file — also when you do the task yourself as asked above. Set it to "main" only if you are the agent that runs hd next.',
     '- If you cannot do this task at all, write {"executed_by": "...", "error": "<why>"} instead.',
     "",
     "When the file is written, this task is done. Do not run `hd next`: the main agent does that.",

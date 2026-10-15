@@ -48,6 +48,18 @@ function printEvidence(outcome: EvidenceOutcome, json: boolean | undefined): voi
   if (!outcome.ok) process.exitCode = 1;
 }
 
+/** fetch whose network errors name their cause, e.g. "fetch failed (ECONNREFUSED)" */
+const describedFetch: typeof fetch = async (input, init) => {
+  try {
+    return await fetch(input, init);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const cause = (error as { cause?: { code?: unknown; message?: unknown } }).cause;
+    const detail = typeof cause?.code === "string" ? cause.code : typeof cause?.message === "string" ? cause.message : undefined;
+    throw new Error(detail ? `${message} (${detail})` : message);
+  }
+};
+
 function claimIdArg(value: string): number {
   const id = toClaimId(value);
   if (id === null) throw new Error(`Not a claim ID: ${value}`);
@@ -115,7 +127,7 @@ export function buildProgram(hdPath: string): Command {
     .option("--title <title>", "page title")
     .option("--json", "print JSON")
     .action(async (run: string, claimId: string, url: string, options: FetchOptions) => {
-      const fetcher = createPageFetcher({ directTimeoutMs: SKILL_LIMITS.fetchTimeoutMs });
+      const fetcher = createPageFetcher({ directTimeoutMs: SKILL_LIMITS.fetchTimeoutMs, fetchImpl: describedFetch });
       printEvidence(await fetchForClaim(runPaths(run), claimIdArg(claimId), url, options.title, (u) => fetcher.fetchPageText(u)), options.json);
     });
 

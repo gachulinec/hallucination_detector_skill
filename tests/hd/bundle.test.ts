@@ -138,6 +138,26 @@ describe("bundled hd", () => {
     for (const item of printed) expect(store.items.find((s) => s.id === item.id)?.url).toBe(item.url);
   }, 60_000);
 
+  test("names the cause of a network error and keeps the network flag for one unreachable site", async () => {
+    // A port that was just closed refuses connections
+    const closed = createServer();
+    await new Promise<void>((done) => closed.listen(0, "127.0.0.1", done));
+    const deadPort = (closed.address() as AddressInfo).port;
+    await new Promise<void>((done) => closed.close(() => done()));
+    const cwd = mkdtempSync(join(tmpdir(), "hd-e2e-"));
+    writeFileSync(join(cwd, "text.md"), STANDARD_TEXT);
+    const first = hdJson<NextOutput>(["init", "--text", "text.md"], cwd);
+    writeFileSync(
+      join(first.run, "claims.json"),
+      JSON.stringify({ claims: [{ id: 1, text: "c", type: "factual", original_sentence: "c", source_position: { start: 0, end: 0 } }] })
+    );
+    const out = hdRun(["fetch", first.run, "1", `http://127.0.0.1:${deadPort}/dead`], cwd);
+    expect(out.stdout).toContain("ECONNREFUSED");
+    expect(out.stdout).toContain("Could not read");
+    const flag = JSON.parse(readFileSync(join(first.run, "network.json"), "utf-8")) as { network: boolean | null };
+    expect(flag.network).toBeNull();
+  });
+
   test("prints its version and ships the licenses of the bundled packages", () => {
     expect(hdRun(["--version"], outDir).stdout.trim()).toBe("1.0.0");
     const notices = readFileSync(join(outDir, "THIRD_PARTY_NOTICES.md"), "utf-8");

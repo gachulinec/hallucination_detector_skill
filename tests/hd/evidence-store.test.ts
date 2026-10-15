@@ -48,12 +48,20 @@ describe("fetchForClaim", () => {
     if (!fifth.ok) expect(fifth.message).toContain("limit");
   });
 
-  test("records that hd has no network", async () => {
+  // Review finding (reproduced): the first unreachable site switched the whole run to "no network"
+  test("decides that hd has no network only after network failures on two sites", async () => {
     const ctx = extracted();
-    const out = await fetchForClaim(ctx.paths, 1, "https://example.org", undefined, async () => ({ text: null, method: "none", reason: "fetch failed" }));
-    expect(out.ok).toBe(false);
-    if (!out.ok) expect(out.message).toContain("no network access");
+    const down = async (): Promise<PageFetchResult> => ({ text: null, method: "none", reason: "fetch failed (ECONNREFUSED)" });
+    const first = await fetchForClaim(ctx.paths, 1, "https://one.example/page", undefined, down);
+    expect(!first.ok && first.message).toContain("Could not read https://one.example/page");
+    expect(readNetwork(ctx.paths)).toBeNull();
+
+    const second = await fetchForClaim(ctx.paths, 1, "https://two.example/page", undefined, down);
+    expect(!second.ok && second.message).toContain("no network access");
     expect(readNetwork(ctx.paths)).toBe(false);
+
+    await fetchForClaim(ctx.paths, 2, "https://three.example/page", undefined, page);
+    expect(readNetwork(ctx.paths)).toBe(true);
   });
 
   test("explains a page it cannot read without touching the network flag", async () => {

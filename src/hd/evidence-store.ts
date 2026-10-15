@@ -16,7 +16,7 @@ import { selectPassages, type PageFetchResult } from "../utils/page-fetcher.js";
 import type { WebSearchOutcome } from "../utils/searxng-search.js";
 import { SKILL_LIMITS } from "./config.js";
 import { withLock } from "./lock.js";
-import { readNetwork, writeNetwork, type RunPaths } from "./run-state.js";
+import { writeNetwork, type NetworkFlag, type RunPaths } from "./run-state.js";
 
 export interface StoredEvidence {
   id: string;
@@ -104,6 +104,33 @@ export function isNetworkFailure(reason: string | undefined): boolean {
   return reason !== undefined && NETWORK_FAILURE.test(reason);
 }
 
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Records a network error and says whether hd now counts as having no
+ * network: only after network errors on two different sites and no page read.
+ */
+function noteNetworkFailure(paths: RunPaths, url: string, reason: string | undefined): boolean {
+  return withLock(paths.network, () => {
+    const flag: NetworkFlag = existsSync(paths.network) ? readJSON<NetworkFlag>(paths.network) : { network: null };
+    if (flag.network === true) return false;
+    const hosts = [...new Set([...(flag.failed_hosts ?? []), hostOf(url)])];
+    const noNetwork = hosts.length >= 2;
+    writeNetwork(paths, { network: noNetwork ? false : null, reason, failed_hosts: hosts });
+    return noNetwork;
+  });
+}
+
+function noteNetworkSuccess(paths: RunPaths): void {
+  withLock(paths.network, () => writeNetwork(paths, { network: true }));
+}
+
 export async function fetchForClaim(
   paths: RunPaths,
   claimId: number,
@@ -131,9 +158,8 @@ export async function fetchForClaim(
   );
   if (!page.text) {
     recordFailedUrl(paths, claimId, url);
-    // Once a page was read, a network error is about this page, not a missing network
-    if (isNetworkFailure(page.reason) && readNetwork(paths) !== true) {
-      writeNetwork(paths, { network: false, reason: page.reason });
+    // One unreachable site is not a missing network
+    if (isNetworkFailure(page.reason) && noteNetworkFailure(paths, url, page.reason)) {
       return {
         ok: false,
         message: `hd has no network access here (${page.reason}). Read pages with your own tools and add the evidence inline in the result (url, title, text); it will count as unconfirmed.`,
@@ -145,7 +171,7 @@ export async function fetchForClaim(
     };
   }
 
-  writeNetwork(paths, { network: true });
+  noteNetworkSuccess(paths);
   writeFileSync(join(paths.pages, `${createHash("sha256").update(url).digest("hex")}.txt`), page.text, "utf-8");
   const passages = selectPassages(page.text, text, SKILL_LIMITS.passagesPerFetch, SKILL_LIMITS.passageChars);
   const items = addItems(

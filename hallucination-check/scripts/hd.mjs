@@ -18026,7 +18026,7 @@ function updateAccepted(paths, name, key2, value) {
   atomicWriteJSON(join2(paths.accepted, `${name}.json`), accepted);
 }
 function readNetwork(paths) {
-  return existsSync3(paths.network) ? readJSON(paths.network).network : null;
+  return existsSync3(paths.network) ? readJSON(paths.network).network ?? null : null;
 }
 function writeNetwork(paths, flag) {
   atomicWriteJSON(paths.network, flag);
@@ -18079,6 +18079,26 @@ var NETWORK_FAILURE = /fetch failed|ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|
 function isNetworkFailure(reason) {
   return reason !== void 0 && NETWORK_FAILURE.test(reason);
 }
+function hostOf(url) {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
+}
+function noteNetworkFailure(paths, url, reason) {
+  return withLock(paths.network, () => {
+    const flag = existsSync4(paths.network) ? readJSON(paths.network) : { network: null };
+    if (flag.network === true) return false;
+    const hosts = [.../* @__PURE__ */ new Set([...flag.failed_hosts ?? [], hostOf(url)])];
+    const noNetwork = hosts.length >= 2;
+    writeNetwork(paths, { network: noNetwork ? false : null, reason, failed_hosts: hosts });
+    return noNetwork;
+  });
+}
+function noteNetworkSuccess(paths) {
+  withLock(paths.network, () => writeNetwork(paths, { network: true }));
+}
 async function fetchForClaim(paths, claimId, url, title, fetchPage) {
   const text = claimText(paths, claimId);
   if (!/^https?:\/\//i.test(url)) return { ok: false, message: `Not a web address: ${url}` };
@@ -18098,8 +18118,7 @@ async function fetchForClaim(paths, claimId, url, title, fetchPage) {
   );
   if (!page.text) {
     recordFailedUrl(paths, claimId, url);
-    if (isNetworkFailure(page.reason) && readNetwork(paths) !== true) {
-      writeNetwork(paths, { network: false, reason: page.reason });
+    if (isNetworkFailure(page.reason) && noteNetworkFailure(paths, url, page.reason)) {
       return {
         ok: false,
         message: `hd has no network access here (${page.reason}). Read pages with your own tools and add the evidence inline in the result (url, title, text); it will count as unconfirmed.`
@@ -18110,7 +18129,7 @@ async function fetchForClaim(paths, claimId, url, title, fetchPage) {
       message: `Could not read ${url}: ${page.reason}. Try another source, or read it with your own tools and add the evidence inline (it will count as unconfirmed).`
     };
   }
-  writeNetwork(paths, { network: true });
+  noteNetworkSuccess(paths);
   writeFileSync3(join3(paths.pages, `${createHash("sha256").update(url).digest("hex")}.txt`), page.text, "utf-8");
   const passages = selectPassages(page.text, text, SKILL_LIMITS.passagesPerFetch, SKILL_LIMITS.passageChars);
   const items = addItems(
@@ -20581,6 +20600,16 @@ function printEvidence(outcome, json) {
   print(json, outcome, outcome.ok ? formatEvidence(outcome.items) : outcome.message);
   if (!outcome.ok) process.exitCode = 1;
 }
+var describedFetch = async (input, init) => {
+  try {
+    return await fetch(input, init);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const cause = error.cause;
+    const detail = typeof cause?.code === "string" ? cause.code : typeof cause?.message === "string" ? cause.message : void 0;
+    throw new Error(detail ? `${message} (${detail})` : message);
+  }
+};
 function claimIdArg(value) {
   const id = toClaimId(value);
   if (id === null) throw new Error(`Not a claim ID: ${value}`);
@@ -20610,7 +20639,7 @@ function buildProgram(hdPath) {
   program2.command("next").description("check the results written so far and print the next tasks").argument("<run>", "run directory").option("--json", "print JSON").action((run, options) => printNext(runNext(run), options.json));
   program2.command("status").description("show where a run is, without reading new results").argument("<run>", "run directory").option("--json", "print JSON").action((run, options) => printNext(runStatus(run), options.json));
   program2.command("fetch").description("download a page and print evidence passages for a claim").argument("<run>", "run directory").argument("<claim_id>", "claim ID").argument("<url>", "page address").option("--title <title>", "page title").option("--json", "print JSON").action(async (run, claimId, url, options) => {
-    const fetcher = createPageFetcher({ directTimeoutMs: SKILL_LIMITS.fetchTimeoutMs });
+    const fetcher = createPageFetcher({ directTimeoutMs: SKILL_LIMITS.fetchTimeoutMs, fetchImpl: describedFetch });
     printEvidence(await fetchForClaim(runPaths(run), claimIdArg(claimId), url, options.title, (u) => fetcher.fetchPageText(u)), options.json);
   });
   program2.command("search").description("search a local SearXNG (SEARXNG_URL) and print evidence snippets for a claim").argument("<run>", "run directory").argument("<claim_id>", "claim ID").argument("<query>", "search query").option("--json", "print JSON").action(async (run, claimId, query2, options) => {

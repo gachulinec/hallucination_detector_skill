@@ -149,13 +149,16 @@ export function updateAccepted<T>(paths: RunPaths, name: string, key: string | n
 }
 
 export interface NetworkFlag {
-  network: boolean;
+  /** null while undecided: a network error on a single site does not mean there is no network */
+  network: boolean | null;
   reason?: string;
+  /** Sites where hd fetch failed with a network error before any page was read */
+  failed_hosts?: string[];
 }
 
 /** Whether hd fetch could reach the web; null until the first fetch. Kept outside state.json because subagents write it. */
 export function readNetwork(paths: RunPaths): boolean | null {
-  return existsSync(paths.network) ? readJSON<NetworkFlag>(paths.network).network : null;
+  return existsSync(paths.network) ? (readJSON<NetworkFlag>(paths.network).network ?? null) : null;
 }
 
 export function writeNetwork(paths: RunPaths, flag: NetworkFlag): void {

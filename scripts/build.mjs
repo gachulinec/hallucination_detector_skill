@@ -56,7 +56,7 @@ const result = await build({
   bundle: true,
   platform: "node",
   format: "esm",
-  target: "node20",
+  target: "node22",
   // Bundled CommonJS packages call require, which ESM output must define
   banner: { js: "#!/usr/bin/env node\nimport { createRequire } from 'node:module';\nconst require = createRequire(import.meta.url);" },
   // linkedom loads canvas only if it is installed; it is not needed

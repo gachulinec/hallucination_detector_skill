@@ -21,7 +21,7 @@ describe("skill folder", () => {
     expect(field("name")).toBe("hallucination-check");
     expect(field("license")).toBe("MIT");
     expect(field("compatibility")).toBe(
-      "Requires Node.js 20+ and shell access; standard mode needs a web search tool; subagents recommended."
+      "Requires Node.js 22.12+ and shell access; standard mode needs a web search tool; subagents recommended."
     );
     const description = field("description") ?? "";
     expect(description.length).toBeGreaterThan(200);
@@ -29,6 +29,13 @@ describe("skill folder", () => {
     // A ": " inside a plain YAML scalar would break the frontmatter
     expect(description).not.toContain(": ");
     expect(frontmatter).toContain(`  version: "${SKILL_VERSION}"`);
+  });
+
+  // Review findings: hd shown unquoted (paths with spaces), and Node 20 claimed while the bundle needs 22.12
+  test("SKILL.md quotes the path of hd and the project states the real Node.js minimum", () => {
+    expect(skillMd).toContain('`hd` means `node "<directory of this skill>/scripts/hd.mjs"`');
+    const pkg = JSON.parse(readFileSync(join(skillDir, "..", "package.json"), "utf-8")) as { engines: { node: string } };
+    expect(pkg.engines.node).toBe(">=22.12");
   });
 
   test("SKILL.md is short and links only to files that exist", () => {

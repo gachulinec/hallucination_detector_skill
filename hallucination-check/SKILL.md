@@ -2,7 +2,7 @@
 name: hallucination-check
 description: Fact-checks a text for hallucinations. Extracts every verifiable claim, checks each one against web sources (standard mode) or only against a given source document (faithfulness mode), and reports which claims are wrong, with evidence. Use when the user asks to fact-check or verify a text, to find hallucinations or factual errors in a report, article, summary or AI-generated answer, or to check a summary against its source. Also use it, with the quick profile, to check your own fact-heavy deliverable (research, report, summary) before handing it over when the user asked for verification or factual accuracy. Not for opinions, style or code.
 license: MIT
-compatibility: Requires Node.js 20+ and shell access; standard mode needs a web search tool; subagents recommended.
+compatibility: Requires Node.js 22.12+ and shell access; standard mode needs a web search tool; subagents recommended.
 metadata:
   version: "1.0.0"
 ---
@@ -11,7 +11,7 @@ metadata:
 
 A fixed fact-checking method. You do the reading and judging: extracting claims, searching, weighing evidence, deciding verdicts. The bundled script `hd` gives you the work one task at a time, checks every result in code and makes the rule-based decisions. The method is only as reliable as its steps: do not skip or shorten them.
 
-`hd` means `node <directory of this skill>/scripts/hd.mjs`.
+`hd` means `node "<directory of this skill>/scripts/hd.mjs"` — keep the quotes: the path may contain spaces.
 
 ## Start
 

@@ -65,8 +65,15 @@ function recordFailedUrl(paths: RunPaths, claimId: number, url: string): void {
   atomicWriteJSON(storeFile(paths, claimId), { ...store, failed_urls: [...failed, url] });
 }
 
+/**
+ * Evidence by ID. An ID names the claim it was fetched for (E<claim>.<n>), and
+ * a page fetched for one claim may support another: the text still comes from hd.
+ */
 export function lookupEvidence(paths: RunPaths, claimId: number, id: string): StoredEvidence | undefined {
-  return readClaimPassages(paths, claimId).items.find((item) => item.id === id.trim());
+  const wanted = id.trim();
+  const owner = /^E(\d+)\.\d+$/.exec(wanted);
+  const storeOf = owner ? Number(owner[1]) : claimId;
+  return readClaimPassages(paths, storeOf).items.find((item) => item.id === wanted);
 }
 
 function claimText(paths: RunPaths, claimId: number): string {

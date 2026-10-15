@@ -103,6 +103,16 @@ describe("verify step", () => {
     expect(verifyStep.accept(ctx, { ...task, claim_ids: [3] }, { results: [inlineResult] })).toEqual({});
   });
 
+  // Scenario 3 (Claude Code): a subagent cited a page fetched for the neighbouring claim; the text still comes from hd
+  test("accepts evidence fetched for another claim", async () => {
+    const ctx = await ready();
+    const [task] = verifyStep.issue(ctx);
+    const outcome = verifyStep.accept(ctx, { ...task, claim_ids: [3] }, { results: [{ ...supported(3, "E1.1"), claim_id: 3 }] });
+    expect(outcome).toEqual({});
+    verifyStep.complete(ctx);
+    expect(verificationMap(ctx).get(3)?.evidence[0]).toMatchObject({ source_url: "https://a.example/eiffel", checked: true });
+  });
+
   test("asks for a retry of the claims with problems only", async () => {
     const ctx = await ready();
     const [task] = verifyStep.issue(ctx);

@@ -113,7 +113,7 @@ function parseEvidence(ctx: StepContext, claimId: number, item: unknown): Eviden
   if (typeof fields.id === "string" && fields.id.trim()) {
     const stored = lookupEvidence(ctx.paths, claimId, fields.id);
     if (!stored) {
-      return `refers to ${fields.id}, which does not exist for claim ${claimId}; use the IDs that hd fetch or hd search printed for this claim`;
+      return `refers to ${fields.id}, which hd fetch or hd search never printed; use the IDs they printed`;
     }
     return {
       source_url: stored.url,

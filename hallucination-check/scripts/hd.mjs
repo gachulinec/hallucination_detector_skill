@@ -18020,7 +18020,10 @@ function recordFailedUrl(paths, claimId, url) {
   atomicWriteJSON(storeFile(paths, claimId), { ...store, failed_urls: [...failed2, url] });
 }
 function lookupEvidence(paths, claimId, id) {
-  return readClaimPassages(paths, claimId).items.find((item) => item.id === id.trim());
+  const wanted = id.trim();
+  const owner = /^E(\d+)\.\d+$/.exec(wanted);
+  const storeOf = owner ? Number(owner[1]) : claimId;
+  return readClaimPassages(paths, storeOf).items.find((item) => item.id === wanted);
 }
 function claimText(paths, claimId) {
   if (!existsSync4(paths.claims)) {
@@ -20222,7 +20225,7 @@ function parseEvidence(ctx, claimId, item) {
   if (typeof fields.id === "string" && fields.id.trim()) {
     const stored = lookupEvidence(ctx.paths, claimId, fields.id);
     if (!stored) {
-      return `refers to ${fields.id}, which does not exist for claim ${claimId}; use the IDs that hd fetch or hd search printed for this claim`;
+      return `refers to ${fields.id}, which hd fetch or hd search never printed; use the IDs they printed`;
     }
     return {
       source_url: stored.url,

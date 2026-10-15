@@ -14,6 +14,7 @@ import { SKILL_LIMITS } from "../config.js";
 import { entriesById, type ResultObject } from "../results.js";
 import { readAccepted, updateAccepted } from "../run-state.js";
 import { batches, newTask, numberedId, writeTaskFile } from "../tasks.js";
+import { WEB_TEXT_WARNING } from "./verify.js";
 import type { Stage, TaskRecord } from "../types.js";
 import {
   claimMap,
@@ -79,6 +80,7 @@ function render(ctx: StepContext, task: TaskRecord, feedback?: string): void {
         "## How to work",
         "",
         "Judge each claim below on its own, from the evidence given and your own knowledge. Do not search the web.",
+        WEB_TEXT_WARNING,
         "Evidence marked [unconfirmed] is the verifier's own wording of a source that could not be checked against the page; it weighs less than confirmed evidence.",
         `Write the reasoning in ${ctx.state.language}.`,
         "",

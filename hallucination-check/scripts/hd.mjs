@@ -18781,9 +18781,9 @@ function describeClaim(claim, title) {
 
 // src/hd/tasks.ts
 var INDEPENDENCE_TEXT = {
-  required: "required \u2014 run this task in a subagent with a fresh context that has not seen the checked text, the claims or earlier results. Give it only this file.",
-  recommended: "recommended \u2014 run this task in a subagent if you can; it keeps your own context small.",
-  none: "not needed \u2014 you can do this task yourself."
+  required: "required \u2014 the main agent gives this task to a subagent with a fresh context that has not seen the checked text, the claims or earlier results, and gives it only this file.",
+  recommended: "recommended \u2014 the main agent gives this task to a subagent if it can; it keeps the main context small.",
+  none: "not needed \u2014 the main agent can do this task itself."
 };
 function newTask(fields) {
   return { attempt: 1, status: "pending", ...fields };
@@ -18810,6 +18810,8 @@ function writeTaskFile(ctx, task, content, feedback) {
     `- Independence: ${INDEPENDENCE_TEXT[task.independence]}`,
     `- Model: ${task.model_tier === "strongest" ? "use the strongest model you can choose" : "a standard model is enough"}`,
     `- Result file: ${result}`,
+    "",
+    "If you received this file as a subagent, do the task yourself now: do not hand it to another subagent.",
     ""
   ];
   if (feedback) {

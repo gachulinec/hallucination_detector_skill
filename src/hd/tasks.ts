@@ -11,11 +11,12 @@ import { resultFile, taskFile } from "./run-state.js";
 import type { StepContext } from "./steps/step.js";
 import type { Independence, TaskKind, TaskRecord } from "./types.js";
 
+// Addressed to the main agent: a subagent that reads "run this in a subagent" delegates again
 const INDEPENDENCE_TEXT: Record<Independence, string> = {
   required:
-    "required — run this task in a subagent with a fresh context that has not seen the checked text, the claims or earlier results. Give it only this file.",
-  recommended: "recommended — run this task in a subagent if you can; it keeps your own context small.",
-  none: "not needed — you can do this task yourself.",
+    "required — the main agent gives this task to a subagent with a fresh context that has not seen the checked text, the claims or earlier results, and gives it only this file.",
+  recommended: "recommended — the main agent gives this task to a subagent if it can; it keeps the main context small.",
+  none: "not needed — the main agent can do this task itself.",
 };
 
 export function newTask(fields: Omit<TaskRecord, "attempt" | "status">): TaskRecord {
@@ -63,6 +64,8 @@ export function writeTaskFile(ctx: StepContext, task: TaskRecord, content: TaskC
     `- Independence: ${INDEPENDENCE_TEXT[task.independence]}`,
     `- Model: ${task.model_tier === "strongest" ? "use the strongest model you can choose" : "a standard model is enough"}`,
     `- Result file: ${result}`,
+    "",
+    "If you received this file as a subagent, do the task yourself now: do not hand it to another subagent.",
     "",
   ];
   if (feedback) {

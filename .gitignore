@@ -1,0 +1,5 @@
+node_modules/
+.hallucination-check/
+*.tmp.*
+.DS_Store
+hallucination-check-*.zip

@@ -158,6 +158,16 @@ describe("bundled hd", () => {
     expect(flag.network).toBeNull();
   });
 
+  // Review finding (reproduced): exiting right after printing cut piped output at 64 KB
+  test("prints long output completely through a pipe", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "hd-e2e-"));
+    writeFileSync(join(cwd, "text.md"), STANDARD_TEXT);
+    const first = hdJson<NextOutput>(["init", "--text", "text.md"], cwd);
+    const long = "A long summary line that repeats.\n".repeat(10_000);
+    writeFileSync(join(first.run, "summary.md"), long);
+    expect(hdRun(["summary", first.run], cwd).stdout.length).toBe(long.length + 1);
+  });
+
   test("prints its version and ships the licenses of the bundled packages", () => {
     expect(hdRun(["--version"], outDir).stdout.trim()).toBe("1.0.0");
     const notices = readFileSync(join(outDir, "THIRD_PARTY_NOTICES.md"), "utf-8");

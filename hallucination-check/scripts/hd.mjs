@@ -20675,7 +20675,10 @@ function buildProgram(hdPath) {
 }
 
 // src/hd/cli.ts
-buildProgram(resolve3(process.argv[1] ?? "hd.mjs")).parseAsync(process.argv).then(() => process.exit(process.exitCode ?? 0)).catch((error) => {
+function exitAfterFlush(code) {
+  process.stdout.write("", () => process.stderr.write("", () => process.exit(code)));
+}
+buildProgram(resolve3(process.argv[1] ?? "hd.mjs")).parseAsync(process.argv).then(() => exitAfterFlush(typeof process.exitCode === "number" ? process.exitCode : 0)).catch((error) => {
   console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
-  process.exit(1);
+  exitAfterFlush(1);
 });

@@ -1,0 +1,95 @@
+import { readFileSync, readdirSync } from "node:fs";
+import { describe, expect, test } from "vitest";
+import {
+  fetchForClaim,
+  isNetworkFailure,
+  lookupEvidence,
+  readClaimPassages,
+  searchForClaim,
+} from "../../src/hd/evidence-store.js";
+import { readNetwork } from "../../src/hd/run-state.js";
+import type { PageFetchResult } from "../../src/utils/page-fetcher.js";
+import { PAGE_TEXT, STANDARD_TEXT, extractClaims, makeRun } from "./helpers.js";
+
+const page = async (): Promise<PageFetchResult> => ({ text: PAGE_TEXT, method: "direct" });
+
+function extracted() {
+  const ctx = makeRun(STANDARD_TEXT);
+  extractClaims(ctx);
+  return ctx;
+}
+
+describe("fetchForClaim", () => {
+  test("stores the page and numbers its passages per claim", async () => {
+    const ctx = extracted();
+    const first = await fetchForClaim(ctx.paths, 2, "https://example.org/eiffel", "Eiffel Tower", page);
+    expect(first.ok).toBe(true);
+    if (first.ok) {
+      expect(first.items[0]).toMatchObject({ id: "E2.1", url: "https://example.org/eiffel", title: "Eiffel Tower", origin: "fetch" });
+      expect(first.items[0].text).toContain("1889");
+    }
+    expect(readdirSync(ctx.paths.pages)).toHaveLength(1);
+    expect(lookupEvidence(ctx.paths, 2, "E2.1")?.url).toBe("https://example.org/eiffel");
+    expect(readNetwork(ctx.paths)).toBe(true);
+    expect(readFileSync(ctx.paths.audit, "utf-8")).toContain("Fetched https://example.org/eiffel");
+
+    const second = await fetchForClaim(ctx.paths, 2, "https://example.org/other", undefined, page);
+    expect(second.ok && second.items[0]).toMatchObject({ id: "E2.2", title: "https://example.org/other" });
+    expect(readClaimPassages(ctx.paths, 2).fetched_urls).toHaveLength(2);
+  });
+
+  test("stops at four pages per claim", async () => {
+    const ctx = extracted();
+    for (let i = 1; i <= 4; i++) {
+      expect((await fetchForClaim(ctx.paths, 1, `https://example.org/${i}`, undefined, page)).ok).toBe(true);
+    }
+    const fifth = await fetchForClaim(ctx.paths, 1, "https://example.org/5", undefined, page);
+    expect(fifth.ok).toBe(false);
+    if (!fifth.ok) expect(fifth.message).toContain("limit");
+  });
+
+  test("records that hd has no network", async () => {
+    const ctx = extracted();
+    const out = await fetchForClaim(ctx.paths, 1, "https://example.org", undefined, async () => ({ text: null, method: "none", reason: "fetch failed" }));
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.message).toContain("no network access");
+    expect(readNetwork(ctx.paths)).toBe(false);
+  });
+
+  test("explains a page it cannot read without touching the network flag", async () => {
+    const ctx = extracted();
+    const out = await fetchForClaim(ctx.paths, 1, "https://example.org", undefined, async () => ({ text: null, method: "none", reason: "HTTP 403" }));
+    expect(!out.ok && out.message).toContain("Could not read https://example.org: HTTP 403");
+    expect(readNetwork(ctx.paths)).toBeNull();
+  });
+
+  test("refuses an unknown claim and an address that is not a web page", async () => {
+    const ctx = extracted();
+    await expect(fetchForClaim(ctx.paths, 99, "https://example.org", undefined, page)).rejects.toThrow(/no claim 99/);
+    const out = await fetchForClaim(ctx.paths, 1, "file:///etc/passwd", undefined, page);
+    expect(!out.ok && out.message).toContain("Not a web address");
+  });
+
+  test("isNetworkFailure tells network errors from page errors", () => {
+    expect(isNetworkFailure("fetch failed")).toBe(true);
+    expect(isNetworkFailure("getaddrinfo ENOTFOUND example.org")).toBe(true);
+    expect(isNetworkFailure("HTTP 404")).toBe(false);
+    expect(isNetworkFailure(undefined)).toBe(false);
+  });
+});
+
+describe("searchForClaim", () => {
+  test("stores search results as evidence with IDs", async () => {
+    const ctx = extracted();
+    const out = await searchForClaim(ctx.paths, 2, "Eiffel Tower completed", async () => ({
+      results: [{ title: "Eiffel", url: "https://a.example/e", content: "The tower was completed in 1889." }],
+    }));
+    expect(out.ok && out.items[0]).toMatchObject({ id: "E2.1", origin: "searxng", url: "https://a.example/e", text: "The tower was completed in 1889." });
+  });
+
+  test("passes on a search error", async () => {
+    const ctx = extracted();
+    const out = await searchForClaim(ctx.paths, 2, "q", async () => ({ results: [], error: "SearXNG search failed: fetch failed" }));
+    expect(!out.ok && out.message).toContain("Use your own web search tool");
+  });
+});

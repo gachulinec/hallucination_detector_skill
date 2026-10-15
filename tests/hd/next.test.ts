@@ -103,6 +103,8 @@ describe("runNext", () => {
       { id: "extract-01", outcome: "retry", detail: expect.stringContaining("not a valid JSON object") },
     ]);
     expect(retried.tasks.map((t) => t.id)).toEqual(["extract-01-retry"]);
+    // Review finding: a rejected attempt is not a task done (independence, task count)
+    expect(loadState(ctx.paths).tasks.find((t) => t.id === "extract-01")?.status).toBe("retried");
     expect(readFileSync(retried.tasks[0].task_file, "utf-8")).toContain("## This is a retry");
   });
 

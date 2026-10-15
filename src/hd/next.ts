@@ -121,7 +121,9 @@ function handle(ctx: StepContext, task: TaskRecord, read: ReadyResult, audit: Au
     };
     step.render(ctx, retry, outcome.retry.feedback);
     ctx.state.tasks.push(retry);
-    task.status = "done";
+    // A task whose whole result was rejected is not a task done: it counts neither for independence nor as a result
+    const whole = outcome.retry.claimIds === undefined || outcome.retry.claimIds.length === task.claim_ids.length;
+    task.status = whole ? "retried" : "done";
     audit.log({ event: "task_retry", module: "skill", details: { task: task.id, feedback: outcome.retry.feedback } });
     return { id: task.id, outcome: "retry", detail: outcome.retry.feedback };
   }

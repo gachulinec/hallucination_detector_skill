@@ -18,7 +18,8 @@ export type Stage =
   | "done"
   | "failed";
 export type ActiveStage = Exclude<Stage, "done" | "failed">;
-export type TaskStatus = "pending" | "done" | "failed";
+/** "retried": the whole result was rejected and a retry task replaced it */
+export type TaskStatus = "pending" | "done" | "retried" | "failed";
 
 export interface TaskRecord {
   /** The task file is tasks/<id>.md, the result results/<id>.json */

@@ -178,13 +178,26 @@ function failSample(ctx: StepContext, task: TaskRecord, _reason: string, claimId
   for (const id of claimIds) updateAccepted(ctx.paths, SAMPLES, sampleKey(task.sample_index ?? 0, id), "");
 }
 
+/** Answers count only when every sample came from a subagent that never saw the claims (spec §6.2). */
+function completeSamples(ctx: StepContext): Stage {
+  const byMain = ctx.state.tasks.filter((t) => t.kind === "sample" && t.status === "done" && t.executed_by !== "subagent");
+  if (byMain.length > 0) {
+    addWarning(
+      ctx.state,
+      `The consistency check was skipped: ${byMain.map((t) => t.id).join(", ")} was not answered by an independent subagent. The rules that use it did not apply.`
+    );
+    return "verify";
+  }
+  return "sample-judgments";
+}
+
 export const samplesStep: Step = {
   stage: "samples",
   issue: issueSamples,
   render: renderSample,
   accept: acceptSample,
   fail: failSample,
-  complete: () => "sample-judgments",
+  complete: completeSamples,
 };
 
 // --- Judging the samples against the claims ---

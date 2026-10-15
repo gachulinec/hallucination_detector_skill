@@ -78,6 +78,29 @@ describe("samples", () => {
   });
 });
 
+describe("samples written by the main agent", () => {
+  // Review finding: answers written after reading the claims still fed the consistency score (spec §6.2)
+  test("skip the consistency check", () => {
+    const ctx = withQuestions();
+    const tasks = samplesStep.issue(ctx);
+    for (const task of tasks) {
+      samplesStep.accept(ctx, task, { answers: QUESTIONS.map((q) => ({ question_id: q.claim_id, answer: "x" })) });
+      ctx.state.tasks.push({ ...task, status: "done", executed_by: task.sample_index === 2 ? "main" : "subagent" });
+    }
+    expect(samplesStep.complete(ctx)).toBe("verify");
+    expect(ctx.state.warnings.join(" ")).toContain("consistency check was skipped");
+  });
+
+  test("keep the consistency check when every sample came from a subagent", () => {
+    const ctx = withQuestions();
+    for (const task of samplesStep.issue(ctx)) {
+      samplesStep.accept(ctx, task, { answers: QUESTIONS.map((q) => ({ question_id: q.claim_id, answer: "x" })) });
+      ctx.state.tasks.push({ ...task, status: "done", executed_by: "subagent" });
+    }
+    expect(samplesStep.complete(ctx)).toBe("sample-judgments");
+  });
+});
+
 describe("sample judgments", () => {
   function withSamples() {
     const ctx = withQuestions();

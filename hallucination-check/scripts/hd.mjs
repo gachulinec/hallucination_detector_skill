@@ -19050,13 +19050,24 @@ function acceptSample(ctx, task, value) {
 function failSample(ctx, task, _reason, claimIds = task.claim_ids) {
   for (const id of claimIds) updateAccepted(ctx.paths, SAMPLES, sampleKey(task.sample_index ?? 0, id), "");
 }
+function completeSamples(ctx) {
+  const byMain = ctx.state.tasks.filter((t) => t.kind === "sample" && t.status === "done" && t.executed_by !== "subagent");
+  if (byMain.length > 0) {
+    addWarning(
+      ctx.state,
+      `The consistency check was skipped: ${byMain.map((t) => t.id).join(", ")} was not answered by an independent subagent. The rules that use it did not apply.`
+    );
+    return "verify";
+  }
+  return "sample-judgments";
+}
 var samplesStep = {
   stage: "samples",
   issue: issueSamples,
   render: renderSample,
   accept: acceptSample,
   fail: failSample,
-  complete: () => "sample-judgments"
+  complete: completeSamples
 };
 function issueJudgments(ctx) {
   const task = newTask({
@@ -20500,7 +20511,8 @@ function handle(ctx, task, read, audit) {
     };
     step.render(ctx, retry, outcome.retry.feedback);
     ctx.state.tasks.push(retry);
-    task.status = "done";
+    const whole = outcome.retry.claimIds === void 0 || outcome.retry.claimIds.length === task.claim_ids.length;
+    task.status = whole ? "retried" : "done";
     audit.log({ event: "task_retry", module: "skill", details: { task: task.id, feedback: outcome.retry.feedback } });
     return { id: task.id, outcome: "retry", detail: outcome.retry.feedback };
   }

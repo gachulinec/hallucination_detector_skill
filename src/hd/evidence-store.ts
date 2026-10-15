@@ -15,6 +15,7 @@ import { maskSearchResults } from "../utils/observation-mask.js";
 import { selectPassages, type PageFetchResult } from "../utils/page-fetcher.js";
 import type { WebSearchOutcome } from "../utils/searxng-search.js";
 import { SKILL_LIMITS } from "./config.js";
+import { withLock } from "./lock.js";
 import { readNetwork, writeNetwork, type RunPaths } from "./run-state.js";
 
 export interface StoredEvidence {
@@ -44,25 +45,36 @@ export function readClaimPassages(paths: RunPaths, claimId: number): ClaimPassag
   return existsSync(file) ? readJSON<ClaimPassages>(file) : { claim_id: claimId, fetched_urls: [], items: [] };
 }
 
+/**
+ * Stores passages with new IDs; null when a new page would exceed the page
+ * limit (checked again here: parallel fetches all passed the first check).
+ */
 function addItems(
   paths: RunPaths,
   claimId: number,
   entries: Array<Omit<StoredEvidence, "id">>,
   fetchedUrl?: string
-): StoredEvidence[] {
-  const store = readClaimPassages(paths, claimId);
-  const added = entries.map((entry, i) => ({ id: `E${claimId}.${store.items.length + i + 1}`, ...entry }));
-  store.items.push(...added);
-  if (fetchedUrl && !store.fetched_urls.includes(fetchedUrl)) store.fetched_urls.push(fetchedUrl);
-  atomicWriteJSON(storeFile(paths, claimId), store);
-  return added;
+): StoredEvidence[] | null {
+  const file = storeFile(paths, claimId);
+  return withLock(file, () => {
+    const store = readClaimPassages(paths, claimId);
+    const newPage = fetchedUrl !== undefined && !store.fetched_urls.includes(fetchedUrl);
+    if (newPage && store.fetched_urls.length >= SKILL_LIMITS.maxFetchesPerClaim) return null;
+    const added = entries.map((entry, i) => ({ id: `E${claimId}.${store.items.length + i + 1}`, ...entry }));
+    store.items.push(...added);
+    if (fetchedUrl && newPage) store.fetched_urls.push(fetchedUrl);
+    atomicWriteJSON(file, store);
+    return added;
+  });
 }
 
 function recordFailedUrl(paths: RunPaths, claimId: number, url: string): void {
-  const store = readClaimPassages(paths, claimId);
-  const failed = store.failed_urls ?? [];
-  if (failed.includes(url)) return;
-  atomicWriteJSON(storeFile(paths, claimId), { ...store, failed_urls: [...failed, url] });
+  const file = storeFile(paths, claimId);
+  withLock(file, () => {
+    const store = readClaimPassages(paths, claimId);
+    const failed = store.failed_urls ?? [];
+    if (!failed.includes(url)) atomicWriteJSON(file, { ...store, failed_urls: [...failed, url] });
+  });
 }
 
 /**
@@ -136,15 +148,19 @@ export async function fetchForClaim(
   writeNetwork(paths, { network: true });
   writeFileSync(join(paths.pages, `${createHash("sha256").update(url).digest("hex")}.txt`), page.text, "utf-8");
   const passages = selectPassages(page.text, text, SKILL_LIMITS.passagesPerFetch, SKILL_LIMITS.passageChars);
-  return {
-    ok: true,
-    items: addItems(
-      paths,
-      claimId,
-      passages.map((passage) => ({ url, title: title?.trim() || url, text: passage, origin: "fetch" as const })),
-      url
-    ),
-  };
+  const items = addItems(
+    paths,
+    claimId,
+    passages.map((passage) => ({ url, title: title?.trim() || url, text: passage, origin: "fetch" as const })),
+    url
+  );
+  if (!items) {
+    return {
+      ok: false,
+      message: `Claim ${claimId} already has ${SKILL_LIMITS.maxFetchesPerClaim} fetched pages, the limit. Decide with the evidence you have.`,
+    };
+  }
+  return { ok: true, items };
 }
 
 export async function searchForClaim(
@@ -158,12 +174,10 @@ export async function searchForClaim(
   if (outcome.error) return { ok: false, message: `${outcome.error}. Use your own web search tool instead.` };
   const evidence = maskSearchResults(outcome.results, text, SKILL_LIMITS.passageChars);
   if (evidence.length === 0) return { ok: false, message: `No results for: ${query}` };
-  return {
-    ok: true,
-    items: addItems(
-      paths,
-      claimId,
-      evidence.map((e) => ({ url: e.source_url, title: e.source_title, text: e.relevant_text, origin: "searxng" as const }))
-    ),
-  };
+  const items = addItems(
+    paths,
+    claimId,
+    evidence.map((e) => ({ url: e.source_url, title: e.source_title, text: e.relevant_text, origin: "searxng" as const }))
+  );
+  return items ? { ok: true, items } : { ok: false, message: `Could not store the results for claim ${claimId}.` };
 }

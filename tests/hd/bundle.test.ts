@@ -101,6 +101,43 @@ describe("bundled hd", () => {
     expect(out.counts).toEqual({ claims: 2, hallucination: 1, unverifiable: 0, verified: 1 });
   }, 60_000);
 
+  // Review finding (reproduced): parallel hd fetch processes for one claim printed the same IDs and one page was lost
+  test("keeps the evidence of parallel fetches for one claim apart", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "hd-e2e-"));
+    writeFileSync(join(cwd, "text.md"), STANDARD_TEXT);
+    const first = hdJson<NextOutput>(["init", "--text", "text.md"], cwd);
+    await fakeAgentDo(first.run, first.tasks, world(cwd));
+    hdJson<NextOutput>(["next", first.run], cwd);
+
+    // Answers only when all four requests have arrived, so the four processes store their passages at the same moment
+    const waiting: Array<() => void> = [];
+    const barrier = createServer((_req, res) => {
+      waiting.push(() => {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(PAGE_HTML);
+      });
+      if (waiting.length === 4) for (const answer of waiting) answer();
+    });
+    await new Promise<void>((done) => barrier.listen(0, "127.0.0.1", done));
+    const port = (barrier.address() as AddressInfo).port;
+    const outs = await Promise.all(
+      [1, 2, 3, 4].map((n) =>
+        hdJsonAsync<{ ok: boolean; items?: Array<{ id: string; url: string }> }>(["fetch", first.run, "1", `http://127.0.0.1:${port}/page-${n}`], cwd)
+      )
+    );
+    await new Promise<void>((done) => barrier.close(() => done()));
+
+    const printed = outs.flatMap((o) => o.items ?? []);
+    expect(new Set(printed.map((i) => i.id)).size).toBe(printed.length);
+    const store = JSON.parse(readFileSync(join(first.run, "passages", "claim_1.json"), "utf-8")) as {
+      fetched_urls: string[];
+      items: Array<{ id: string; url: string }>;
+    };
+    expect(store.fetched_urls).toHaveLength(4);
+    expect(store.items).toHaveLength(printed.length);
+    for (const item of printed) expect(store.items.find((s) => s.id === item.id)?.url).toBe(item.url);
+  }, 60_000);
+
   test("prints its version and ships the licenses of the bundled packages", () => {
     expect(hdRun(["--version"], outDir).stdout.trim()).toBe("1.0.0");
     const notices = readFileSync(join(outDir, "THIRD_PARTY_NOTICES.md"), "utf-8");

@@ -17729,13 +17729,13 @@ function createSearxngSearcher(options) {
   const minIntervalMs = options.minIntervalMs ?? 1500;
   const retryDelaysMs = options.retryDelaysMs ?? [1e4, 3e4, 6e4];
   const now = options.now ?? Date.now;
-  const sleep = options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
+  const sleep2 = options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
   let queue = Promise.resolve();
   let lastStart = Number.NEGATIVE_INFINITY;
   const throttled = (query2) => {
     const run = queue.then(async () => {
       const wait = lastStart + minIntervalMs - now();
-      if (wait > 0) await sleep(wait);
+      if (wait > 0) await sleep2(wait);
       lastStart = now();
       return searchOnce(query2, options);
     });
@@ -17747,7 +17747,7 @@ function createSearxngSearcher(options) {
       for (let attempt = 0; ; attempt++) {
         const { outcome, retry } = await throttled(query2);
         if (!outcome.error || !retry || attempt >= retryDelaysMs.length) return outcome;
-        await sleep(retryDelaysMs[attempt]);
+        await sleep2(retryDelaysMs[attempt]);
       }
     }
   };
@@ -17899,6 +17899,41 @@ function extractRelevantSnippet(text, claim, maxLength) {
   return text.slice(bestStart, bestStart + maxLength).trim();
 }
 
+// src/hd/lock.ts
+import { closeSync, openSync, statSync, unlinkSync } from "node:fs";
+var WAIT_MS = 1e4;
+var STALE_MS = 3e4;
+var sleepCell = new Int32Array(new SharedArrayBuffer(4));
+function sleep(ms) {
+  Atomics.wait(sleepCell, 0, 0, ms);
+}
+function withLock(file, fn) {
+  const lock = `${file}.lock`;
+  const deadline = Date.now() + WAIT_MS;
+  for (; ; ) {
+    try {
+      closeSync(openSync(lock, "wx"));
+      break;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > STALE_MS) unlinkSync(lock);
+      } catch {
+      }
+      if (Date.now() > deadline) throw new Error(`Timed out waiting for ${lock}`);
+      sleep(10);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    try {
+      unlinkSync(lock);
+    } catch {
+    }
+  }
+}
+
 // src/hd/run-state.ts
 import { existsSync as existsSync3, mkdirSync as mkdirSync3, readFileSync as readFileSync2, writeFileSync as writeFileSync2 } from "node:fs";
 import { dirname as dirname3, join as join2, resolve } from "node:path";
@@ -18006,18 +18041,25 @@ function readClaimPassages(paths, claimId) {
   return existsSync4(file) ? readJSON(file) : { claim_id: claimId, fetched_urls: [], items: [] };
 }
 function addItems(paths, claimId, entries2, fetchedUrl) {
-  const store = readClaimPassages(paths, claimId);
-  const added = entries2.map((entry, i) => ({ id: `E${claimId}.${store.items.length + i + 1}`, ...entry }));
-  store.items.push(...added);
-  if (fetchedUrl && !store.fetched_urls.includes(fetchedUrl)) store.fetched_urls.push(fetchedUrl);
-  atomicWriteJSON(storeFile(paths, claimId), store);
-  return added;
+  const file = storeFile(paths, claimId);
+  return withLock(file, () => {
+    const store = readClaimPassages(paths, claimId);
+    const newPage = fetchedUrl !== void 0 && !store.fetched_urls.includes(fetchedUrl);
+    if (newPage && store.fetched_urls.length >= SKILL_LIMITS.maxFetchesPerClaim) return null;
+    const added = entries2.map((entry, i) => ({ id: `E${claimId}.${store.items.length + i + 1}`, ...entry }));
+    store.items.push(...added);
+    if (fetchedUrl && newPage) store.fetched_urls.push(fetchedUrl);
+    atomicWriteJSON(file, store);
+    return added;
+  });
 }
 function recordFailedUrl(paths, claimId, url) {
-  const store = readClaimPassages(paths, claimId);
-  const failed2 = store.failed_urls ?? [];
-  if (failed2.includes(url)) return;
-  atomicWriteJSON(storeFile(paths, claimId), { ...store, failed_urls: [...failed2, url] });
+  const file = storeFile(paths, claimId);
+  withLock(file, () => {
+    const store = readClaimPassages(paths, claimId);
+    const failed2 = store.failed_urls ?? [];
+    if (!failed2.includes(url)) atomicWriteJSON(file, { ...store, failed_urls: [...failed2, url] });
+  });
 }
 function lookupEvidence(paths, claimId, id) {
   const wanted = id.trim();
@@ -18071,15 +18113,19 @@ async function fetchForClaim(paths, claimId, url, title, fetchPage) {
   writeNetwork(paths, { network: true });
   writeFileSync3(join3(paths.pages, `${createHash("sha256").update(url).digest("hex")}.txt`), page.text, "utf-8");
   const passages = selectPassages(page.text, text, SKILL_LIMITS.passagesPerFetch, SKILL_LIMITS.passageChars);
-  return {
-    ok: true,
-    items: addItems(
-      paths,
-      claimId,
-      passages.map((passage) => ({ url, title: title?.trim() || url, text: passage, origin: "fetch" })),
-      url
-    )
-  };
+  const items = addItems(
+    paths,
+    claimId,
+    passages.map((passage) => ({ url, title: title?.trim() || url, text: passage, origin: "fetch" })),
+    url
+  );
+  if (!items) {
+    return {
+      ok: false,
+      message: `Claim ${claimId} already has ${SKILL_LIMITS.maxFetchesPerClaim} fetched pages, the limit. Decide with the evidence you have.`
+    };
+  }
+  return { ok: true, items };
 }
 async function searchForClaim(paths, claimId, query2, search) {
   const text = claimText(paths, claimId);
@@ -18087,14 +18133,12 @@ async function searchForClaim(paths, claimId, query2, search) {
   if (outcome.error) return { ok: false, message: `${outcome.error}. Use your own web search tool instead.` };
   const evidence = maskSearchResults(outcome.results, text, SKILL_LIMITS.passageChars);
   if (evidence.length === 0) return { ok: false, message: `No results for: ${query2}` };
-  return {
-    ok: true,
-    items: addItems(
-      paths,
-      claimId,
-      evidence.map((e) => ({ url: e.source_url, title: e.source_title, text: e.relevant_text, origin: "searxng" }))
-    )
-  };
+  const items = addItems(
+    paths,
+    claimId,
+    evidence.map((e) => ({ url: e.source_url, title: e.source_title, text: e.relevant_text, origin: "searxng" }))
+  );
+  return items ? { ok: true, items } : { ok: false, message: `Could not store the results for claim ${claimId}.` };
 }
 
 // src/hd/format.ts
@@ -18672,7 +18716,7 @@ function finalizeRun(ctx, now = /* @__PURE__ */ new Date()) {
 }
 
 // src/hd/results.ts
-import { existsSync as existsSync7, readFileSync as readFileSync4, statSync } from "node:fs";
+import { existsSync as existsSync7, readFileSync as readFileSync4, statSync as statSync2 } from "node:fs";
 function sliceObject(text) {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
@@ -18698,7 +18742,7 @@ function readResult(file, now = Date.now()) {
   if (!existsSync7(file)) return { state: "missing" };
   const value = parseResultText(readFileSync4(file, "utf-8"));
   if (!value) {
-    if (now - statSync(file).mtimeMs < SKILL_LIMITS.settleMs) return { state: "settling" };
+    if (now - statSync2(file).mtimeMs < SKILL_LIMITS.settleMs) return { state: "settling" };
     return { state: "invalid", feedback: "The result file is not a valid JSON object. Write only the JSON object the task describes." };
   }
   const error = typeof value.error === "string" && value.error.trim() ? value.error.trim() : void 0;

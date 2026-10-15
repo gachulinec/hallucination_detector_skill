@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { sentenceInText, uncoveredNumbers } from "../../src/hd/checks.js";
+import { normalizeText, sentenceInText, uncoveredNumbers } from "../../src/hd/checks.js";
 import { entriesById, parseResultText, readResult, toClaimId } from "../../src/hd/results.js";
 import {
   createRun,
@@ -163,6 +163,18 @@ describe("checks", () => {
     expect(uncoveredNumbers(text, claims)).toEqual([
       { sentence: "The tower was completed in 1889 and opened in 1890.", numbers: ["1890"] },
     ]);
+  });
+
+  // Review finding: AI answers are Markdown; emphasis, link targets and footnote markers made the checks fail
+  test("sentenceInText ignores Markdown emphasis, links and footnote markers", () => {
+    const text = normalizeText("The tower is **330** metres tall, says [NASA](https://nasa.gov/a/1969)[1].");
+    expect(sentenceInText("The tower is 330 metres tall, says NASA.", text)).toBe(true);
+    expect(sentenceInText("The tower is **330** metres tall, says [NASA](https://nasa.gov/a/1969)[1].", text)).toBe(true);
+  });
+
+  test("uncoveredNumbers ignores digits in link targets and footnote markers", () => {
+    const text = "It is **330** m tall [1]. See [the report](https://example.org/2024/report-77).";
+    expect(uncoveredNumbers(text, [{ text: "It is 330 m tall", original_sentence: "It is **330** m tall [1]." }])).toEqual([]);
   });
 
   test("uncoveredNumbers finds a sentence with numbers and no claim", () => {

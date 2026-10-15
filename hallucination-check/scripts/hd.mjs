@@ -19582,19 +19582,25 @@ function sanitizeText(text) {
 }
 
 // src/hd/checks.ts
+function plainText(text) {
+  return text.replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/<https?:\/\/[^>]+>/g, "").replace(/https?:\/\/\S+/g, "").replace(/\s*\[\^?\d+\]/g, "").replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, "$2").replace(/(?<![\w*])([*_])(?=\S)([^*_\n]*?\S)\1(?![\w*])/g, "$2").replace(/`([^`]*)`/g, "$1");
+}
+function normalizeText(text) {
+  return normalizeForMatch(plainText(text));
+}
 function sentenceInText(sentence, normalizedText) {
-  const s = normalizeForMatch(sentence).replace(/^["'\s]+|["'\s]+$/g, "");
+  const s = normalizeText(sentence).replace(/^["'\s]+|["'\s]+$/g, "");
   return s.length > 0 && normalizedText.includes(s);
 }
 function numericSentences(text) {
-  return text.split("\n").map((line) => line.trim()).filter((line) => line && !line.startsWith("#") && !line.startsWith("|")).map((line) => line.replace(/^(?:\d+[.)]|[-*+])\s+/, "")).flatMap((line) => line.split(/(?<=[.!?])\s+/)).filter((sentence) => /\d/.test(sentence));
+  return text.split("\n").map((line) => line.trim()).filter((line) => line && !line.startsWith("#") && !line.startsWith("|")).map((line) => plainText(line.replace(/^(?:\d+[.)]|[-*+])\s+/, ""))).flatMap((line) => line.split(/(?<=[.!?])\s+/)).filter((sentence) => /\d/.test(sentence));
 }
 function uncoveredNumbers(text, claims) {
   const result = [];
   for (const sentence of numericSentences(text)) {
-    const normalized = normalizeForMatch(sentence);
+    const normalized = normalizeText(sentence);
     const own = claims.filter((c) => {
-      const claimSentence = normalizeForMatch(c.original_sentence);
+      const claimSentence = normalizeText(c.original_sentence);
       return claimSentence.length > 0 && (normalized.includes(claimSentence) || claimSentence.includes(normalized));
     });
     const stated = new Set(own.flatMap((c) => parseNumbers(c.text).map((n) => n.value)));
@@ -19663,7 +19669,7 @@ function accept(ctx, task, value) {
   const chunk = chunkOf(ctx, task);
   const claims = positioned(normalizeExtractedClaims(value.claims), chunk.text);
   updateAccepted(ctx.paths, ACCEPTED, chunk.id, claims);
-  const normalizedChunk = normalizeForMatch(chunk.text);
+  const normalizedChunk = normalizeText(chunk.text);
   const notInText = claims.filter((c) => !sentenceInText(c.original_sentence, normalizedChunk));
   const uncovered = uncoveredNumbers(chunk.text, claims);
   if (task.attempt === 1 && (notInText.length > 0 || uncovered.length > 0)) {

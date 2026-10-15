@@ -9,10 +9,9 @@ import type { Claim } from "../../schemas/index.js";
 import { atomicWriteJSON, readJSON } from "../../utils/atomic-write.js";
 import { chunkForExtraction, mergeChunkClaims, type ExtractionChunk } from "../../utils/extraction-chunks.js";
 import { loadPrompt } from "../../utils/prompts.js";
-import { normalizeForMatch } from "../../utils/quote-match.js";
 import { splitIntoSections } from "../../utils/section-splitter.js";
 import { sanitizeText } from "../../utils/text-sanitizer.js";
-import { sentenceInText, uncoveredNumbers } from "../checks.js";
+import { normalizeText, sentenceInText, uncoveredNumbers } from "../checks.js";
 import { SKILL_LIMITS } from "../config.js";
 import type { ResultObject } from "../results.js";
 import { readAccepted, updateAccepted } from "../run-state.js";
@@ -84,7 +83,7 @@ function accept(ctx: StepContext, task: TaskRecord, value: ResultObject): Accept
   // The newest valid list replaces an earlier one
   updateAccepted(ctx.paths, ACCEPTED, chunk.id, claims);
 
-  const normalizedChunk = normalizeForMatch(chunk.text);
+  const normalizedChunk = normalizeText(chunk.text);
   const notInText = claims.filter((c) => !sentenceInText(c.original_sentence, normalizedChunk));
   const uncovered = uncoveredNumbers(chunk.text, claims);
 

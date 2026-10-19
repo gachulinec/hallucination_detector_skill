@@ -49,7 +49,7 @@ describe("finalizeRun", () => {
     expect(report.processing_time_ms).toBe(5_000);
     expect(report.run_info).toEqual({
       tool: "hallucination-check-skill",
-      version: "1.0.0",
+      version: "1.0.1",
       profile: "thorough",
       origin: "external",
       agent: "claude-code",

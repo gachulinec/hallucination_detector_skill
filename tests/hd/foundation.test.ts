@@ -44,7 +44,7 @@ describe("createRun", () => {
     expect(readFileSync(paths.text, "utf-8")).toBe("Text.");
     expect(readFileSync(join(dir, "work", ".gitignore"), "utf-8")).toBe("*\n");
     expect(loadState(paths)).toMatchObject({
-      version: "1.0.0",
+      version: "1.0.1",
       mode: "standard",
       stage: "extract",
       profile: "thorough",

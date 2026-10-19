@@ -180,7 +180,7 @@ describe("bundled hd", () => {
   });
 
   test("prints its version and ships the licenses of the bundled packages", () => {
-    expect(hdRun(["--version"], outDir).stdout.trim()).toBe("1.0.0");
+    expect(hdRun(["--version"], outDir).stdout.trim()).toBe("1.0.1");
     const notices = readFileSync(join(outDir, "THIRD_PARTY_NOTICES.md"), "utf-8");
     expect(notices).toContain("@mozilla/readability");
     expect(notices).toContain("linkedom");

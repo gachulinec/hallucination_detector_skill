@@ -3,7 +3,7 @@
 import { METHOD } from "../method/config.js";
 import type { Profile } from "./types.js";
 
-export const SKILL_VERSION = "1.0.0";
+export const SKILL_VERSION = "1.0.1";
 
 export const SKILL_LIMITS = {
   extractionChunkChars: METHOD.extraction_chunk_chars,

@@ -17754,7 +17754,7 @@ function createSearxngSearcher(options) {
 }
 
 // src/hd/config.ts
-var SKILL_VERSION = "1.0.0";
+var SKILL_VERSION = "1.0.1";
 var SKILL_LIMITS = {
   extractionChunkChars: METHOD.extraction_chunk_chars,
   claimsPerTask: {

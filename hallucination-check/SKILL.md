@@ -4,7 +4,7 @@ description: Fact-checks a text for hallucinations. Extracts every verifiable cl
 license: MIT
 compatibility: Requires Node.js 22.12+ and shell access; standard mode needs a web search tool; subagents recommended.
 metadata:
-  version: "1.0.0"
+  version: "1.0.1"
 ---
 
 # Hallucination Check

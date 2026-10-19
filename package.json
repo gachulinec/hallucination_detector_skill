@@ -1,6 +1,6 @@
 {
   "name": "hallucination-check-skill",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Agent Skill that fact-checks texts for hallucinations; source of the bundled hd CLI",
   "license": "MIT",

@@ -55,7 +55,7 @@ Measured on the 40-document main set of the Hallucination Detector pipeline (20 
 | Standard (web search) | 20 | 80/80 (100 %) | 89/90 (99 %) | 0/40 |
 | Faithfulness (source document only) | 20 | 80/80 (100 %) | 94/95 (99 %) | 0/40 |
 
-Of 938 claims, one ended UNVERIFIABLE. The skill was measured at commit 18a9ba1; the one later change (how subagents report `executed_by`) was not re-evaluated. The skill was improved using scenario runs on four documents of this set, so the results are likely more favourable than on new texts. Results hold only for the configuration they were measured with; other agents and models are not evaluated.
+Of 938 claims, one ended UNVERIFIABLE. The skill was measured at commit 18a9ba1; the later changes (how subagents report `executed_by`, and the fixes in 1.0.1, which leave the verdict rules unchanged) were not re-evaluated. The skill was improved using scenario runs on four documents of this set, so the results are likely more favourable than on new texts. Results hold only for the configuration they were measured with; other agents and models are not evaluated.
 
 ## Privacy
 

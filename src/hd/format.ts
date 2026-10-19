@@ -3,6 +3,11 @@
 import type { StoredEvidence } from "./evidence-store.js";
 import type { NextOutput } from "./next.js";
 
+/** A path in double quotes for a POSIX shell: " $ ` and \ are escaped, so the shell reads it back exactly */
+export function shellQuote(path: string): string {
+  return `"${path.replace(/["$`\\]/g, "\\$&")}"`;
+}
+
 function indent(text: string): string {
   return text
     .split("\n")
@@ -48,7 +53,7 @@ export function formatNext(out: NextOutput): string {
     }
   }
   if (out.waiting.length > 0) lines.push(`Still being written: ${out.waiting.join(", ")}`);
-  lines.push(`When the result files are written, run: ${out.hd_command} next "${out.run}"`);
+  lines.push(`When the result files are written, run: ${out.hd_command} next ${shellQuote(out.run)}`);
   return lines.join("\n");
 }
 

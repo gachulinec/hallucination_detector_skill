@@ -18040,15 +18040,20 @@ function readClaimPassages(paths, claimId) {
   const file = storeFile(paths, claimId);
   return existsSync4(file) ? readJSON(file) : { claim_id: claimId, fetched_urls: [], items: [] };
 }
+function pageItems(store, url) {
+  return store.items.filter((item) => item.origin === "fetch" && item.url === url);
+}
 function addItems(paths, claimId, entries2, fetchedUrl) {
   const file = storeFile(paths, claimId);
   return withLock(file, () => {
     const store = readClaimPassages(paths, claimId);
-    const newPage = fetchedUrl !== void 0 && !store.fetched_urls.includes(fetchedUrl);
-    if (newPage && store.fetched_urls.length >= SKILL_LIMITS.maxFetchesPerClaim) return null;
+    if (fetchedUrl !== void 0) {
+      if (store.fetched_urls.includes(fetchedUrl)) return pageItems(store, fetchedUrl);
+      if (store.fetched_urls.length >= SKILL_LIMITS.maxFetchesPerClaim) return null;
+      store.fetched_urls.push(fetchedUrl);
+    }
     const added = entries2.map((entry, i) => ({ id: `E${claimId}.${store.items.length + i + 1}`, ...entry }));
     store.items.push(...added);
-    if (fetchedUrl && newPage) store.fetched_urls.push(fetchedUrl);
     atomicWriteJSON(file, store);
     return added;
   });
@@ -18061,13 +18066,16 @@ function recordFailedUrl(paths, claimId, url) {
     if (!failed2.includes(url)) atomicWriteJSON(file, { ...store, failed_urls: [...failed2, url] });
   });
 }
+function evidenceClaim(id) {
+  const owner = /^E(\d+)\.\d+$/.exec(id.trim());
+  return owner ? Number(owner[1]) : null;
+}
 function lookupEvidence(paths, claimId, id) {
   const wanted = id.trim();
-  const owner = /^E(\d+)\.\d+$/.exec(wanted);
-  const storeOf = owner ? Number(owner[1]) : claimId;
-  return readClaimPassages(paths, storeOf).items.find((item) => item.id === wanted);
+  return readClaimPassages(paths, evidenceClaim(wanted) ?? claimId).items.find((item) => item.id === wanted);
 }
 function claimText(paths, claimId) {
+  loadState(paths);
   if (!existsSync4(paths.claims)) {
     throw new Error("The claims are not extracted yet: fetch evidence during the verification tasks.");
   }
@@ -18103,7 +18111,8 @@ async function fetchForClaim(paths, claimId, url, title, fetchPage) {
   const text = claimText(paths, claimId);
   if (!/^https?:\/\//i.test(url)) return { ok: false, message: `Not a web address: ${url}` };
   const store = readClaimPassages(paths, claimId);
-  if (!store.fetched_urls.includes(url) && store.fetched_urls.length >= SKILL_LIMITS.maxFetchesPerClaim) {
+  if (store.fetched_urls.includes(url)) return { ok: true, items: pageItems(store, url) };
+  if (store.fetched_urls.length >= SKILL_LIMITS.maxFetchesPerClaim) {
     return {
       ok: false,
       message: `Claim ${claimId} already has ${SKILL_LIMITS.maxFetchesPerClaim} fetched pages, the limit. Decide with the evidence you have.`
@@ -18161,6 +18170,9 @@ async function searchForClaim(paths, claimId, query2, search) {
 }
 
 // src/hd/format.ts
+function shellQuote(path2) {
+  return `"${path2.replace(/["$`\\]/g, "\\$&")}"`;
+}
 function indent(text) {
   return text.split("\n").map((line) => `    ${line}`).join("\n");
 }
@@ -18198,7 +18210,7 @@ function formatNext(out) {
     }
   }
   if (out.waiting.length > 0) lines.push(`Still being written: ${out.waiting.join(", ")}`);
-  lines.push(`When the result files are written, run: ${out.hd_command} next "${out.run}"`);
+  lines.push(`When the result files are written, run: ${out.hd_command} next ${shellQuote(out.run)}`);
   return lines.join("\n");
 }
 function formatEvidence(items) {
@@ -20138,7 +20150,7 @@ function render5(ctx, task, feedback) {
   const { claims, document_title: title } = readClaims(ctx);
   const consistency = consistencyMap(ctx);
   const hd = ctx.state.hd_command;
-  const run = `"${ctx.paths.root}"`;
+  const run = shellQuote(ctx.paths.root);
   const thorough = ctx.state.profile === "thorough";
   const inline = '{"url", "title", "text", "relation", "confidence"}';
   const steps = [
@@ -20186,7 +20198,11 @@ function render5(ctx, task, feedback) {
     feedback
   );
 }
-function parseEvidence(ctx, claimId, item) {
+function batchClaims(ctx, task) {
+  const first = ctx.state.tasks.find((t) => t.id === task.id.replace(/-retry$/, ""));
+  return [...task.claim_ids, ...first?.claim_ids ?? []];
+}
+function parseEvidence(ctx, claimId, batch, item) {
   if (typeof item !== "object" || item === null || Array.isArray(item)) return "is not an object";
   const fields = item;
   const relation = typeof fields.relation === "string" ? fields.relation.trim().toLowerCase() : "";
@@ -20196,6 +20212,10 @@ function parseEvidence(ctx, claimId, item) {
   const support_relation = relation;
   const confidence = clamp01(fields.confidence, 0.6);
   if (typeof fields.id === "string" && fields.id.trim()) {
+    const owner = evidenceClaim(fields.id);
+    if (owner !== null && !batch.includes(owner)) {
+      return `refers to ${fields.id.trim()}, but ${fields.id.trim()} was fetched for claim ${owner}, which is not in this task; run hd fetch for claim ${claimId}`;
+    }
     const stored = lookupEvidence(ctx.paths, claimId, fields.id);
     if (!stored) {
       return `refers to ${fields.id}, which hd fetch or hd search never printed; use the IDs they printed`;
@@ -20243,8 +20263,9 @@ function parseResult(ctx, task, claim, entry) {
   }
   const evidence = [];
   const itemProblems = [];
+  const batch = batchClaims(ctx, task);
   rawEvidence.slice(0, SKILL_LIMITS.maxEvidencePerClaim).forEach((item, i) => {
-    const parsed = parseEvidence(ctx, claim.id, item);
+    const parsed = parseEvidence(ctx, claim.id, batch, item);
     if (typeof parsed === "string") itemProblems.push(`evidence item ${i + 1} ${parsed}`);
     else evidence.push(parsed);
   });
@@ -20495,7 +20516,10 @@ function isActive(stage) {
 function handle(ctx, task, read, audit) {
   const step = STEPS[STAGE_OF[task.kind]];
   if (read.state === "ok") task.executed_by = read.executedBy;
-  if (read.state === "ok" && read.error) {
+  const hasPayload = read.state === "ok" && Object.keys(read.value).some((key2) => key2 !== "error" && key2 !== "executed_by");
+  if (read.state === "ok" && read.error && hasPayload) {
+    addWarning(ctx.state, `Task ${task.id} reported a problem: ${read.error}`);
+  } else if (read.state === "ok" && read.error) {
     task.status = "failed";
     task.error = read.error;
     step.fail(ctx, task, read.error);
@@ -20646,7 +20670,7 @@ function claimIdArg(value) {
   return id;
 }
 function buildProgram(hdPath) {
-  const hdCommand = `node "${hdPath}"`;
+  const hdCommand = `node ${shellQuote(hdPath)}`;
   const program2 = new Command();
   program2.name("hd").description("hallucination-check: gives the agent its tasks one step at a time and checks every result in code").version(SKILL_VERSION);
   program2.command("init").description("start a check and print the first tasks").requiredOption("--text <file>", "the text to check").option("--source <file>", "source document (faithfulness mode)").addOption(new Option("--profile <profile>", "thorough or quick (default: thorough; quick with --origin self)").choices(["thorough", "quick"])).addOption(new Option("--origin <origin>", "external: a text to check; self: your own draft").choices(["external", "self"]).default("external")).option("--lang <language>", "language of the explanations in the report", "English").option("--no-subagents", "you cannot start subagents").option("--agent <name>", "your product name, recorded in the report").option("--model <ids...>", "the model IDs you use, recorded in the report").option("--dir <path>", "directory for runs", DEFAULT_DIR).option("--json", "print JSON").action((options) => {
@@ -20682,6 +20706,7 @@ function buildProgram(hdPath) {
   });
   program2.command("summary").description("print the short result of a finished run").argument("<run>", "run directory").action((run) => {
     const paths = runPaths(run);
+    loadState(paths);
     if (!existsSync10(paths.summary)) {
       console.error("The run is not finished yet: run hd next until it prints DONE.");
       process.exitCode = 1;

@@ -111,13 +111,29 @@ describe("verify step", () => {
   });
 
   // Scenario 3 (Claude Code): a subagent cited a page fetched for the neighbouring claim; the text still comes from hd
-  test("accepts evidence fetched for another claim", async () => {
+  test("accepts evidence fetched for another claim of the same task", async () => {
     const ctx = await ready();
     const [task] = verifyStep.issue(ctx);
-    const outcome = verifyStep.accept(ctx, { ...task, claim_ids: [3] }, { results: [{ ...supported(3, "E1.1"), claim_id: 3 }] });
+    const outcome = verifyStep.accept(ctx, { ...task, claim_ids: [1, 3] }, { results: [supported(1, "E1.1"), supported(3, "E1.1")] });
     expect(outcome).toEqual({});
     verifyStep.complete(ctx);
     expect(verificationMap(ctx).get(3)?.evidence[0]).toMatchObject({ source_url: "https://a.example/eiffel", checked: true });
+  });
+
+  // Review finding: an ID of a claim outside the task (a typo such as E1.1 for E11.1) was accepted
+  test("rejects evidence fetched for a claim outside the task", async () => {
+    const ctx = await ready();
+    const [task] = verifyStep.issue(ctx);
+    const outcome = verifyStep.accept(ctx, { ...task, claim_ids: [3] }, { results: [supported(3, "E1.1")] });
+    expect(outcome.retry?.feedback).toContain("E1.1 was fetched for claim 1, which is not in this task");
+  });
+
+  test("accepts evidence of a claim from the first attempt in its retry", async () => {
+    const ctx = await ready();
+    const [task] = verifyStep.issue(ctx);
+    ctx.state.tasks.push({ ...task, claim_ids: [1, 3], status: "done" });
+    const retry = { ...task, id: `${task.id}-retry`, attempt: 2, claim_ids: [3] };
+    expect(verifyStep.accept(ctx, retry, { results: [supported(3, "E1.1")] })).toEqual({});
   });
 
   // Scenario 1 rerun (Claude Code): one invalid item in the retry sank a claim whose valid evidence contradicted it

@@ -9,7 +9,7 @@ import { runNext, runStatus, type NextOutput } from "../../src/hd/next.js";
 import { loadState, runPaths } from "../../src/hd/run-state.js";
 import type { PageFetchResult } from "../../src/utils/page-fetcher.js";
 import { fakeAgentDo, type FakeWorld } from "./fake-agent.js";
-import { FAITH_SOURCE, FAITH_TEXT, PAGE_TEXT, STANDARD_TEXT, makeRun } from "./helpers.js";
+import { FAITH_SOURCE, FAITH_TEXT, PAGE_TEXT, STANDARD_CLAIMS, STANDARD_TEXT, makeRun } from "./helpers.js";
 
 const page = async (): Promise<PageFetchResult> => ({ text: PAGE_TEXT, method: "direct" });
 
@@ -127,6 +127,20 @@ describe("runNext", () => {
     expect(out.processed).toEqual([{ id: "extract-01", outcome: "failed", detail: "cannot read the text" }]);
     expect(out.warnings.join(" ")).toContain("could not be done: cannot read the text");
     expect(out.failure).toBeDefined();
+  });
+
+  test("accepts a valid result that also reports an error, with a warning", () => {
+    const ctx = makeRun(STANDARD_TEXT);
+    const [task] = runNext(ctx.paths.root).tasks;
+    writeFileSync(
+      task.result_file,
+      JSON.stringify({ executed_by: "main", error: "one sentence was unclear", claims: STANDARD_CLAIMS })
+    );
+    const out = runNext(ctx.paths.root);
+    expect(out.processed).toEqual([{ id: "extract-01", outcome: "accepted" }]);
+    expect(out.failure).toBeUndefined();
+    expect(out.stage).toBe("questions");
+    expect(out.warnings.join(" ")).toContain("Task extract-01 reported a problem: one sentence was unclear");
   });
 
   test("records that required tasks were done by the main agent", async () => {

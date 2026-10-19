@@ -10,7 +10,8 @@ import { atomicWriteJSON } from "../../utils/atomic-write.js";
 import { loadPrompt } from "../../utils/prompts.js";
 import { clamp01 } from "../../utils/validate.js";
 import { SKILL_LIMITS } from "../config.js";
-import { lookupEvidence, readClaimPassages } from "../evidence-store.js";
+import { evidenceClaim, lookupEvidence, readClaimPassages } from "../evidence-store.js";
+import { shellQuote } from "../format.js";
 import { entriesById, type ResultObject } from "../results.js";
 import { readAccepted, readNetwork, updateAccepted } from "../run-state.js";
 import { batches, claimsSection, newTask, numberedId, writeTaskFile } from "../tasks.js";
@@ -54,7 +55,7 @@ function render(ctx: StepContext, task: TaskRecord, feedback?: string): void {
   const { claims, document_title: title } = readClaims(ctx);
   const consistency = consistencyMap(ctx);
   const hd = ctx.state.hd_command;
-  const run = `"${ctx.paths.root}"`;
+  const run = shellQuote(ctx.paths.root);
   const thorough = ctx.state.profile === "thorough";
   const inline = '{"url", "title", "text", "relation", "confidence"}';
   const steps = [
@@ -112,7 +113,13 @@ function render(ctx: StepContext, task: TaskRecord, feedback?: string): void {
   );
 }
 
-function parseEvidence(ctx: StepContext, claimId: number, item: unknown): Evidence | string {
+/** The claims of a task and of its first attempt: a retry may cite what the first attempt fetched */
+function batchClaims(ctx: StepContext, task: TaskRecord): number[] {
+  const first = ctx.state.tasks.find((t) => t.id === task.id.replace(/-retry$/, ""));
+  return [...task.claim_ids, ...(first?.claim_ids ?? [])];
+}
+
+function parseEvidence(ctx: StepContext, claimId: number, batch: number[], item: unknown): Evidence | string {
   if (typeof item !== "object" || item === null || Array.isArray(item)) return "is not an object";
   const fields = item as ResultObject;
   const relation = typeof fields.relation === "string" ? fields.relation.trim().toLowerCase() : "";
@@ -123,6 +130,11 @@ function parseEvidence(ctx: StepContext, claimId: number, item: unknown): Eviden
   const confidence = clamp01(fields.confidence, 0.6);
 
   if (typeof fields.id === "string" && fields.id.trim()) {
+    // Only the task's own claims: an ID of another claim is most likely a typo
+    const owner = evidenceClaim(fields.id);
+    if (owner !== null && !batch.includes(owner)) {
+      return `refers to ${fields.id.trim()}, but ${fields.id.trim()} was fetched for claim ${owner}, which is not in this task; run hd fetch for claim ${claimId}`;
+    }
     const stored = lookupEvidence(ctx.paths, claimId, fields.id);
     if (!stored) {
       return `refers to ${fields.id}, which hd fetch or hd search never printed; use the IDs they printed`;
@@ -180,8 +192,9 @@ function parseResult(ctx: StepContext, task: TaskRecord, claim: Claim, entry: Re
   }
   const evidence: Evidence[] = [];
   const itemProblems: string[] = [];
+  const batch = batchClaims(ctx, task);
   rawEvidence.slice(0, SKILL_LIMITS.maxEvidencePerClaim).forEach((item, i) => {
-    const parsed = parseEvidence(ctx, claim.id, item);
+    const parsed = parseEvidence(ctx, claim.id, batch, item);
     if (typeof parsed === "string") itemProblems.push(`evidence item ${i + 1} ${parsed}`);
     else evidence.push(parsed);
   });

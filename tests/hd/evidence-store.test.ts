@@ -7,7 +7,7 @@ import {
   readClaimPassages,
   searchForClaim,
 } from "../../src/hd/evidence-store.js";
-import { readNetwork } from "../../src/hd/run-state.js";
+import { readNetwork, runPaths } from "../../src/hd/run-state.js";
 import type { PageFetchResult } from "../../src/utils/page-fetcher.js";
 import { PAGE_TEXT, STANDARD_TEXT, extractClaims, makeRun } from "./helpers.js";
 
@@ -36,6 +36,31 @@ describe("fetchForClaim", () => {
     const second = await fetchForClaim(ctx.paths, 2, "https://example.org/other", undefined, page);
     expect(second.ok && second.items[0]).toMatchObject({ id: "E2.2", title: "https://example.org/other" });
     expect(readClaimPassages(ctx.paths, 2).fetched_urls).toHaveLength(2);
+  });
+
+  // Review finding: a refetch downloaded the page again and stored its passages twice
+  test("returns the stored passages when a page is fetched again for the same claim", async () => {
+    const ctx = extracted();
+    let downloads = 0;
+    const counted = async (): Promise<PageFetchResult> => {
+      downloads++;
+      return { text: PAGE_TEXT, method: "direct" };
+    };
+    const first = await fetchForClaim(ctx.paths, 2, "https://example.org/eiffel", "Eiffel Tower", counted);
+    const again = await fetchForClaim(ctx.paths, 2, "https://example.org/eiffel", "Eiffel Tower", counted);
+    expect(downloads).toBe(1);
+    expect(again).toEqual(first);
+    expect(readClaimPassages(ctx.paths, 2).items).toHaveLength(first.ok ? first.items.length : -1);
+  });
+
+  test("stores a page once when two fetches of it run in parallel", async () => {
+    const ctx = extracted();
+    const both = await Promise.all([
+      fetchForClaim(ctx.paths, 2, "https://example.org/eiffel", undefined, page),
+      fetchForClaim(ctx.paths, 2, "https://example.org/eiffel", undefined, page),
+    ]);
+    expect(both[1]).toEqual(both[0]);
+    expect(readClaimPassages(ctx.paths, 2).items).toHaveLength(both[0].ok ? both[0].items.length : -1);
   });
 
   test("stops at four pages per claim", async () => {
@@ -69,6 +94,14 @@ describe("fetchForClaim", () => {
     const out = await fetchForClaim(ctx.paths, 1, "https://example.org", undefined, async () => ({ text: null, method: "none", reason: "HTTP 403" }));
     expect(!out.ok && out.message).toContain("Could not read https://example.org: HTTP 403");
     expect(readNetwork(ctx.paths)).toBeNull();
+  });
+
+  // Review finding: a mistyped run path said "The claims are not extracted yet"
+  test("says that a mistyped run path is not a run", async () => {
+    const ctx = extracted();
+    const wrong = runPaths(`${ctx.paths.root}-typo`);
+    await expect(fetchForClaim(wrong, 1, "https://example.org", undefined, page)).rejects.toThrow(/No run at .*-typo/);
+    await expect(searchForClaim(wrong, 1, "q", async () => ({ results: [] }))).rejects.toThrow(/No run at .*-typo/);
   });
 
   test("refuses an unknown claim and an address that is not a web page", async () => {

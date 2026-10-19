@@ -8,10 +8,10 @@ import { createPageFetcher } from "../utils/page-fetcher.js";
 import { createSearxngSearcher } from "../utils/searxng-search.js";
 import { SKILL_LIMITS, SKILL_VERSION } from "./config.js";
 import { fetchForClaim, searchForClaim, type EvidenceOutcome } from "./evidence-store.js";
-import { formatEvidence, formatNext } from "./format.js";
+import { formatEvidence, formatNext, shellQuote } from "./format.js";
 import { runNext, runStatus, type NextOutput } from "./next.js";
 import { toClaimId } from "./results.js";
-import { createRun, DEFAULT_DIR, runPaths } from "./run-state.js";
+import { createRun, DEFAULT_DIR, loadState, runPaths } from "./run-state.js";
 import type { Origin, Profile } from "./types.js";
 
 interface JsonOption {
@@ -67,7 +67,7 @@ function claimIdArg(value: string): number {
 }
 
 export function buildProgram(hdPath: string): Command {
-  const hdCommand = `node "${hdPath}"`;
+  const hdCommand = `node ${shellQuote(hdPath)}`;
   const program = new Command();
   program
     .name("hd")
@@ -153,6 +153,7 @@ export function buildProgram(hdPath: string): Command {
     .argument("<run>", "run directory")
     .action((run: string) => {
       const paths = runPaths(run);
+      loadState(paths); // a mistyped run path is named as such
       if (!existsSync(paths.summary)) {
         console.error("The run is not finished yet: run hd next until it prints DONE.");
         process.exitCode = 1;

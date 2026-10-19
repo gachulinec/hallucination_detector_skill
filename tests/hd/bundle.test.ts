@@ -168,6 +168,17 @@ describe("bundled hd", () => {
     expect(hdRun(["summary", first.run], cwd).stdout.length).toBe(long.length + 1);
   });
 
+  // Review finding: a mistyped run path said "The run is not finished yet" or "The claims are not extracted yet"
+  test("says that a mistyped run path is not a run", () => {
+    const cwd = mkdtempSync(join(tmpdir(), "hd-e2e-"));
+    const summary = hdRun(["summary", "runs/typo"], cwd);
+    expect(summary.status).toBe(1);
+    expect(summary.stderr).toContain("No run at");
+    const fetched = hdRun(["fetch", "runs/typo", "1", "https://example.org"], cwd);
+    expect(fetched.status).toBe(1);
+    expect(fetched.stderr).toContain("No run at");
+  });
+
   test("prints its version and ships the licenses of the bundled packages", () => {
     expect(hdRun(["--version"], outDir).stdout.trim()).toBe("1.0.0");
     const notices = readFileSync(join(outDir, "THIRD_PARTY_NOTICES.md"), "utf-8");

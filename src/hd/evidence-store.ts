@@ -16,7 +16,7 @@ import { selectPassages, type PageFetchResult } from "../utils/page-fetcher.js";
 import type { WebSearchOutcome } from "../utils/searxng-search.js";
 import { SKILL_LIMITS } from "./config.js";
 import { withLock } from "./lock.js";
-import { writeNetwork, type NetworkFlag, type RunPaths } from "./run-state.js";
+import { loadState, writeNetwork, type NetworkFlag, type RunPaths } from "./run-state.js";
 
 export interface StoredEvidence {
   id: string;
@@ -45,9 +45,15 @@ export function readClaimPassages(paths: RunPaths, claimId: number): ClaimPassag
   return existsSync(file) ? readJSON<ClaimPassages>(file) : { claim_id: claimId, fetched_urls: [], items: [] };
 }
 
+/** The passages already stored for a page fetched for this claim */
+function pageItems(store: ClaimPassages, url: string): StoredEvidence[] {
+  return store.items.filter((item) => item.origin === "fetch" && item.url === url);
+}
+
 /**
  * Stores passages with new IDs; null when a new page would exceed the page
  * limit (checked again here: parallel fetches all passed the first check).
+ * A page stored meanwhile by a parallel fetch keeps its first passages.
  */
 function addItems(
   paths: RunPaths,
@@ -58,11 +64,13 @@ function addItems(
   const file = storeFile(paths, claimId);
   return withLock(file, () => {
     const store = readClaimPassages(paths, claimId);
-    const newPage = fetchedUrl !== undefined && !store.fetched_urls.includes(fetchedUrl);
-    if (newPage && store.fetched_urls.length >= SKILL_LIMITS.maxFetchesPerClaim) return null;
+    if (fetchedUrl !== undefined) {
+      if (store.fetched_urls.includes(fetchedUrl)) return pageItems(store, fetchedUrl);
+      if (store.fetched_urls.length >= SKILL_LIMITS.maxFetchesPerClaim) return null;
+      store.fetched_urls.push(fetchedUrl);
+    }
     const added = entries.map((entry, i) => ({ id: `E${claimId}.${store.items.length + i + 1}`, ...entry }));
     store.items.push(...added);
-    if (fetchedUrl && newPage) store.fetched_urls.push(fetchedUrl);
     atomicWriteJSON(file, store);
     return added;
   });
@@ -77,18 +85,23 @@ function recordFailedUrl(paths: RunPaths, claimId: number, url: string): void {
   });
 }
 
+/** The claim an evidence ID was fetched for (E<claim>.<n>), or null for another form */
+export function evidenceClaim(id: string): number | null {
+  const owner = /^E(\d+)\.\d+$/.exec(id.trim());
+  return owner ? Number(owner[1]) : null;
+}
+
 /**
- * Evidence by ID. An ID names the claim it was fetched for (E<claim>.<n>), and
- * a page fetched for one claim may support another: the text still comes from hd.
+ * Evidence by ID. An ID names the claim it was fetched for, and a page fetched
+ * for one claim may support another: the text still comes from hd.
  */
 export function lookupEvidence(paths: RunPaths, claimId: number, id: string): StoredEvidence | undefined {
   const wanted = id.trim();
-  const owner = /^E(\d+)\.\d+$/.exec(wanted);
-  const storeOf = owner ? Number(owner[1]) : claimId;
-  return readClaimPassages(paths, storeOf).items.find((item) => item.id === wanted);
+  return readClaimPassages(paths, evidenceClaim(wanted) ?? claimId).items.find((item) => item.id === wanted);
 }
 
 function claimText(paths: RunPaths, claimId: number): string {
+  loadState(paths); // a mistyped run path is named as such
   if (!existsSync(paths.claims)) {
     throw new Error("The claims are not extracted yet: fetch evidence during the verification tasks.");
   }
@@ -142,7 +155,9 @@ export async function fetchForClaim(
   if (!/^https?:\/\//i.test(url)) return { ok: false, message: `Not a web address: ${url}` };
 
   const store = readClaimPassages(paths, claimId);
-  if (!store.fetched_urls.includes(url) && store.fetched_urls.length >= SKILL_LIMITS.maxFetchesPerClaim) {
+  // A page fetched before for this claim gives the same passages: no second download
+  if (store.fetched_urls.includes(url)) return { ok: true, items: pageItems(store, url) };
+  if (store.fetched_urls.length >= SKILL_LIMITS.maxFetchesPerClaim) {
     return {
       ok: false,
       message: `Claim ${claimId} already has ${SKILL_LIMITS.maxFetchesPerClaim} fetched pages, the limit. Decide with the evidence you have.`,

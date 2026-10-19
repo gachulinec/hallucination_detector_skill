@@ -84,7 +84,11 @@ function handle(ctx: StepContext, task: TaskRecord, read: ReadyResult, audit: Au
   const step = STEPS[STAGE_OF[task.kind]];
   if (read.state === "ok") task.executed_by = read.executedBy;
 
-  if (read.state === "ok" && read.error) {
+  // An error next to a result is a remark: the result is checked as usual
+  const hasPayload = read.state === "ok" && Object.keys(read.value).some((key) => key !== "error" && key !== "executed_by");
+  if (read.state === "ok" && read.error && hasPayload) {
+    addWarning(ctx.state, `Task ${task.id} reported a problem: ${read.error}`);
+  } else if (read.state === "ok" && read.error) {
     task.status = "failed";
     task.error = read.error;
     step.fail(ctx, task, read.error);
